@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no" />
+<title>Efsane Çağrısı</title>
+<meta name="description" content="Kahramanlar çağır, kadronu güçlendir, otomatik savaşlarla bölgeleri fethet. AFK'de bile kazanmaya devam et." />
+
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Efsane Çağrısı" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="theme-color" content="#0d0b17" />
+<link rel="apple-touch-icon" href="icons/icon-180.png" />
+<link rel="icon" type="image/png" sizes="32x32" href="icons/icon-32.png" />
+<link rel="icon" type="image/png" sizes="16x16" href="icons/icon-16.png" />
+<link rel="manifest" href="manifest.json" />
+
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<div id="splash" class="splash">
+  <div class="splash-icon">🐉</div>
+  <div class="splash-title">Efsane Çağrısı</div>
+  <div class="splash-sub">Kahramanlarını çağır, ordunu kur</div>
+  <div class="splash-bar"><div class="splash-bar-fill" id="splashBarFill"></div></div>
+</div>
+
+<div id="app" class="app hidden">
+
+  <!-- ------------------------ ANA EKRAN ------------------------ -->
+  <section class="screen" id="screen-home" data-screen="home">
+    <header class="home-topbar">
+      <div class="currency-pill"><span class="cur-icon">🪙</span><span id="goldLabel">0</span></div>
+      <div class="currency-pill"><span class="cur-icon">💎</span><span id="gemLabel">0</span></div>
+      <div class="stage-pill">Bölge <span id="stageLabel">1</span></div>
+    </header>
+
+    <div class="home-hero">
+      <div class="home-hero-icon">🐉</div>
+      <h1 class="home-hero-title">Efsane Çağrısı</h1>
+      <p class="home-hero-sub" id="stageNameLabel">1. Bölge</p>
+    </div>
+
+    <div class="team-preview" id="teamPreview"></div>
+
+    <button class="btn-fight" id="fightBtn">⚔️ Savaşa Gir</button>
+
+    <div class="afk-panel">
+      <div class="afk-panel-head">
+        <span>💤 AFK Ödülleri</span>
+        <span class="afk-cap" id="afkCapLabel">0/4 sa</span>
+      </div>
+      <div class="afk-panel-rewards">
+        <span>🪙 <b id="afkGoldLabel">0</b></span>
+        <span>🎫 <b id="afkTicketLabel">0</b></span>
+      </div>
+      <button class="btn btn-secondary" id="claimAfkBtn">Ödülleri Topla</button>
+    </div>
+
+    <div class="home-menu-row">
+      <button class="home-menu-btn" id="openRosterBtn"><span class="hm-icon">🎴</span><span>Kadro</span></button>
+      <button class="home-menu-btn" id="openTeamBtn"><span class="hm-icon">🛡️</span><span>Takım</span></button>
+      <button class="home-menu-btn" id="openSummonBtn"><span class="hm-icon">✨</span><span>Çağır</span></button>
+      <button class="home-menu-btn" id="openStagesBtn"><span class="hm-icon">🗺️</span><span>Bölgeler</span></button>
+      <button class="home-menu-btn" id="openShopBtn"><span class="hm-icon">🛍️</span><span>Mağaza</span></button>
+      <button class="home-menu-btn" id="openSettingsBtn"><span class="hm-icon">⚙️</span><span>Ayarlar</span></button>
+    </div>
+  </section>
+
+  <!-- ------------------------ KADRO ------------------------ -->
+  <section class="screen" id="screen-roster" data-screen="roster" hidden>
+    <header class="sub-topbar">
+      <button class="back-btn" data-back="home">‹</button>
+      <h2>Kadro</h2>
+      <div class="currency-pill small"><span class="cur-icon">🪙</span><span id="goldLabelRoster">0</span></div>
+    </header>
+    <p class="panel-desc">Kahramanlarını altınla seviye atlat, tekrar çağırdığın kahramanlardan biriken parçalarla yıldızını yükselt.</p>
+    <div class="hero-grid" id="rosterGrid"></div>
+  </section>
+
+  <!-- ------------------------ TAKIM ------------------------ -->
+  <section class="screen" id="screen-team" data-screen="team" hidden>
+    <header class="sub-topbar">
+      <button class="back-btn" data-back="home">‹</button>
+      <h2>Takım Kur</h2>
+      <div class="power-pill">⚡ <span id="teamPowerLabel">0</span></div>
+    </header>
+    <p class="panel-desc">En fazla 5 kahraman. İlk slota koyduğun kahraman ön safta durur, düşman saldırılarının çoğunu o karşılar.</p>
+    <div class="team-slots" id="teamSlots"></div>
+    <h3 class="section-title">Kadron</h3>
+    <div class="hero-grid" id="teamPool"></div>
+  </section>
+
+  <!-- ------------------------ ÇAĞIRMA ------------------------ -->
+  <section class="screen" id="screen-summon" data-screen="summon" hidden>
+    <header class="sub-topbar">
+      <button class="back-btn" data-back="home">‹</button>
+      <h2>Çağırma</h2>
+    </header>
+    <div class="panel-card banner-card standard">
+      <h3>🎫 Standart Çağırı</h3>
+      <p class="panel-desc">Sıradan/Nadir/Epik kahramanlar. Bilet ile çağır. <span id="standardPityLabel"></span></p>
+      <div class="currency-pill small"><span class="cur-icon">🎫</span><span id="ticketLabelSummon">0</span></div>
+      <div class="summon-btn-row">
+        <button class="btn btn-secondary" id="summonStd1Btn">1x Çağır (🎫1)</button>
+        <button class="btn btn-primary" id="summonStd10Btn">10x Çağır (🎫9)</button>
+      </div>
+    </div>
+    <div class="panel-card banner-card premium">
+      <h3>💎 Efsane Çağırısı</h3>
+      <p class="panel-desc">Tüm nadirlikler dahil (Efsanevi de olabilir!). Elmas ile çağır. <span id="premiumPityLabel"></span></p>
+      <div class="currency-pill small"><span class="cur-icon">💎</span><span id="gemLabelSummon">0</span></div>
+      <div class="summon-btn-row">
+        <button class="btn btn-secondary" id="summonPrem1Btn">1x Çağır (💎150)</button>
+        <button class="btn btn-primary" id="summonPrem10Btn">10x Çağır (💎1350)</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ------------------------ BÖLGE HARİTASI ------------------------ -->
+  <section class="screen" id="screen-stages" data-screen="stages" hidden>
+    <header class="sub-topbar">
+      <button class="back-btn" data-back="home">‹</button>
+      <h2>Bölgeler</h2>
+    </header>
+    <div class="stage-list" id="stageList"></div>
+  </section>
+
+  <!-- ------------------------ MAĞAZA ------------------------ -->
+  <section class="screen" id="screen-shop" data-screen="shop" hidden>
+    <header class="sub-topbar">
+      <button class="back-btn" data-back="home">‹</button>
+      <h2>Mağaza</h2>
+      <div class="currency-pill small"><span class="cur-icon">💎</span><span id="gemLabelShop">0</span></div>
+    </header>
+    <p class="demo-shop-note">⚠️ Bu bir <b>demo mağaza</b>: hiçbir gerçek ödeme alınmaz. Gerçek para tahsilatı için Stripe/RevenueCat gibi bir ödeme sağlayıcısı entegrasyonu gerekir.</p>
+
+    <div class="panel-card pack-card starter" id="starterBundleCard" hidden>
+      <div class="pack-tag">Tek Seferlik!</div>
+      <h3>🎁 Başlangıç Paketi</h3>
+      <p class="panel-desc">💎600 + 🎫15 + 🪙3000 — çok özel bir fiyata</p>
+      <button class="pack-buy-btn">₺49,99</button>
+    </div>
+
+    <h3 class="section-title">💎 Elmas Paketleri</h3>
+    <div class="pack-grid" id="gemPackGrid"></div>
+
+    <div class="panel-card">
+      <h3>⏱️ AFK Süresini Uzat</h3>
+      <p class="panel-desc">Şu an: uzaklaşınca en fazla <b id="afkBoostLevelLabelWrap">4</b> saat kazanmaya devam ediyorsun (seviye <span id="afkBoostLevelLabel">0</span>). Her yükseltme +1 saat ekler, kalıcıdır.</p>
+      <button class="btn btn-primary" id="afkBoostBtn">💎 <span id="afkBoostCostLabel">150</span> — Yükselt</button>
+    </div>
+  </section>
+
+  <!-- ------------------------ AYARLAR ------------------------ -->
+  <section class="screen" id="screen-settings" data-screen="settings" hidden>
+    <header class="sub-topbar">
+      <button class="back-btn" data-back="home">‹</button>
+      <h2>Ayarlar</h2>
+    </header>
+    <div class="panel-card">
+      <div class="setting-row"><span>🔊 Ses efektleri</span><label class="switch"><input type="checkbox" id="soundToggle" checked><span class="slider"></span></label></div>
+      <div class="setting-row"><span>✨ Ekran sarsıntısı</span><label class="switch"><input type="checkbox" id="shakeToggle" checked><span class="slider"></span></label></div>
+    </div>
+    <div class="panel-card">
+      <h3>💾 Kayıt</h3>
+      <p class="panel-desc">İlerlemen bu cihazda otomatik saklanır.</p>
+      <button class="btn btn-secondary" id="exportBtn">Kaydı Dışa Aktar</button>
+      <button class="btn btn-secondary" id="importBtn">Kaydı İçe Aktar</button>
+      <button class="btn btn-danger" id="resetBtn">Oyunu Sıfırla</button>
+    </div>
+  </section>
+
+  <!-- ------------------------ SAVAŞ ------------------------ -->
+  <section class="screen screen-battle" id="screen-battle" data-screen="battle" hidden>
+    <header class="battle-topbar">
+      <button class="battle-exit" id="battleExitBtn">✕</button>
+      <div class="battle-stage-pill" id="battleStageLabel">1. Bölge</div>
+      <div class="battle-timer-pill" id="battleTimerLabel">32s</div>
+      <button class="battle-speed-btn" id="battleSpeedBtn">1x</button>
+    </header>
+    <div class="battle-canvas-wrap" id="battleCanvasWrap">
+      <canvas id="battleCanvas"></canvas>
+    </div>
+  </section>
+
+</div>
+
+<div id="modalOverlay" class="modal-overlay hidden"><div class="modal" id="modalBox"></div></div>
+<div id="toastArea" class="toast-area"></div>
+
+<script src="app.js"></script>
+<script src="battle.js"></script>
+</body>
+</html>

@@ -1,0 +1,237 @@
+/* ==========================================================================
+   Efsane Çağrısı — stil dosyası. Koyu "fantastik/gacha" tema: mor arkaplan,
+   altın vurgu, nadirliğe göre renklendirilmiş kahraman kartları.
+   ========================================================================== */
+
+:root {
+  --bg: #0d0b17;
+  --bg-2: #161328;
+  --card: #1c1830;
+  --card-2: #241f3d;
+  --border: rgba(255,255,255,0.09);
+  --text: #f1eefc;
+  --text-dim: #a79fc4;
+  --accent: #ffd24d;
+  --accent-2: #c77bff;
+  --accent-grad: linear-gradient(135deg, #ffd24d, #ff8a3d);
+  --danger: #ff4d6a;
+  --success: #4dd68a;
+  --radius: 16px;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+
+  --r-common: #9aa0ad;
+  --r-rare: #4dc9ff;
+  --r-epic: #c77bff;
+  --r-legendary: #ffd24d;
+}
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body {
+  margin: 0; padding: 0; height: 100%;
+  background: var(--bg); color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+  overscroll-behavior: none; user-select: none;
+}
+button { font-family: inherit; }
+.hidden { display: none !important; }
+
+/* ------------------------------ Splash ------------------------------ */
+.splash {
+  position: fixed; inset: 0; z-index: 999;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  background: radial-gradient(circle at 50% 25%, #241a3d, #0a0713 75%);
+  transition: opacity 0.4s ease;
+}
+.splash.fade-out { opacity: 0; }
+.splash-icon { font-size: 72px; animation: float-hero 2.6s ease-in-out infinite; filter: drop-shadow(0 0 24px rgba(255,210,77,0.5)); }
+.splash-title { font-size: 26px; font-weight: 800; margin-top: 14px; }
+.splash-sub { color: var(--text-dim); margin-top: 6px; font-size: 14px; }
+.splash-bar { width: 180px; height: 6px; border-radius: 4px; background: rgba(255,255,255,0.1); margin-top: 26px; overflow: hidden; }
+.splash-bar-fill { height: 100%; width: 0%; background: var(--accent-grad); transition: width 0.15s ease; }
+
+@keyframes float-hero { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
+
+/* ------------------------------ App shell ------------------------------ */
+.app { position: fixed; inset: 0; display: flex; flex-direction: column; overflow: hidden; }
+.screen {
+  position: absolute; inset: 0;
+  padding: calc(14px + var(--safe-top)) 16px calc(14px + var(--safe-bottom));
+  display: flex; flex-direction: column; overflow-y: auto;
+}
+/* Author CSS always beats the UA stylesheet, so our own display:flex above
+   would otherwise defeat the native [hidden] attribute — screens would stay
+   visible/clickable even while "hidden" without this rule. */
+.screen[hidden] { display: none; }
+
+/* ------------------------------ Ortak ------------------------------ */
+.currency-pill, .stage-pill, .power-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--card); border: 1px solid var(--border);
+  padding: 6px 12px; border-radius: 999px; font-weight: 700; font-size: 14px;
+}
+.currency-pill.small { font-size: 12px; padding: 4px 10px; }
+.cur-icon { font-size: 14px; }
+
+.sub-topbar { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.sub-topbar h2 { flex: 1; margin: 0; font-size: 19px; }
+.back-btn { width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--border); background: var(--card); color: var(--text); font-size: 20px; cursor: pointer; }
+
+.panel-card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; margin-bottom: 14px; position: relative; }
+.panel-card h3 { margin: 0 0 6px; font-size: 15px; }
+.panel-desc { color: var(--text-dim); font-size: 13px; line-height: 1.5; margin: 0 0 10px; }
+.section-title { font-size: 14px; margin: 4px 0 8px; color: var(--text-dim); }
+
+.setting-row { display: flex; align-items: center; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.setting-row:last-child { border-bottom: none; }
+.switch { position: relative; width: 46px; height: 26px; display: inline-block; }
+.switch input { opacity: 0; width: 0; height: 0; }
+.slider { position: absolute; inset: 0; background: #35304a; border-radius: 999px; transition: 0.2s; cursor: pointer; }
+.slider::before { content: ""; position: absolute; width: 20px; height: 20px; left: 3px; top: 3px; background: white; border-radius: 50%; transition: 0.2s; }
+.switch input:checked + .slider { background: var(--accent); }
+.switch input:checked + .slider::before { transform: translateX(20px); }
+
+.btn { border: none; border-radius: 12px; padding: 12px 16px; font-size: 15px; font-weight: 700; cursor: pointer; width: 100%; margin-bottom: 8px; }
+.btn-primary { background: var(--accent-grad); color: #2b1500; }
+.btn-secondary { background: var(--card-2); color: var(--text); border: 1px solid var(--border); }
+.btn-danger { background: rgba(255,77,106,0.15); color: var(--danger); border: 1px solid rgba(255,77,106,0.4); }
+.btn-big { padding: 16px; font-size: 17px; }
+
+/* ------------------------------ Ana ekran ------------------------------ */
+.home-topbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.home-hero { text-align: center; margin-top: 14px; }
+.home-hero-icon { font-size: 56px; filter: drop-shadow(0 4px 18px rgba(255,210,77,0.35)); animation: float-hero 3.4s ease-in-out infinite; }
+.home-hero-title { font-size: 24px; font-weight: 800; margin: 8px 0 2px; }
+.home-hero-sub { color: var(--text-dim); font-size: 13px; margin: 0; }
+
+.team-preview { display: flex; gap: 8px; justify-content: center; margin-top: 14px; }
+.mini-hero {
+  width: 46px; height: 46px; border-radius: 10px;
+  background: linear-gradient(145deg, #322a52, #14101f);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  border: 1px solid var(--border); position: relative;
+}
+.mini-hero.empty { opacity: 0.4; border-style: dashed; }
+.mini-hero-icon { font-size: 18px; }
+.mini-hero-star { font-size: 8px; color: var(--accent); position: absolute; bottom: 2px; font-weight: 700; }
+.mini-hero-plus { font-size: 18px; color: var(--text-dim); }
+
+.btn-fight {
+  margin-top: 16px; border: none; border-radius: 18px; padding: 18px;
+  font-size: 18px; font-weight: 800; color: #2b1500;
+  background: var(--accent-grad);
+  box-shadow: 0 10px 30px rgba(255,210,77,0.25);
+  animation: pulse-fight 2.2s ease-in-out infinite;
+}
+@keyframes pulse-fight { 0%,100% { transform: scale(1); } 50% { transform: scale(1.015); } }
+
+.afk-panel { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 12px 14px; margin-top: 14px; }
+.afk-panel-head { display: flex; justify-content: space-between; font-size: 13px; font-weight: 700; margin-bottom: 6px; }
+.afk-cap { color: var(--text-dim); font-weight: 600; font-size: 12px; }
+.afk-panel-rewards { display: flex; gap: 16px; font-size: 14px; font-weight: 700; margin-bottom: 8px; color: var(--success); }
+
+.home-menu-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 14px; }
+.home-menu-btn { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 10px 4px; display: flex; flex-direction: column; align-items: center; gap: 4px; color: var(--text); font-size: 11px; font-weight: 600; cursor: pointer; }
+.hm-icon { font-size: 20px; }
+
+/* ------------------------------ Kahraman kartları (ortak) ------------------------------ */
+.hero-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; padding-bottom: 12px; }
+.hero-tile {
+  background: var(--card); border: 2px solid var(--border); border-radius: 14px;
+  padding: 12px; text-align: center; position: relative;
+}
+.hero-tile.small { padding: 8px; cursor: pointer; }
+.hero-tile.locked { opacity: 0.55; }
+.hero-tile.in-team { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.hero-tile.rarity-common { border-color: var(--r-common); }
+.hero-tile.rarity-rare { border-color: var(--r-rare); }
+.hero-tile.rarity-epic { border-color: var(--r-epic); }
+.hero-tile.rarity-legendary { border-color: var(--r-legendary); box-shadow: 0 0 14px rgba(255,210,77,0.25); }
+.hero-tile-icon { font-size: 30px; }
+.hero-tile.small .hero-tile-icon { font-size: 22px; }
+.hero-tile-name { font-weight: 700; font-size: 12px; margin-top: 4px; }
+.hero-tile-meta { font-size: 10px; color: var(--text-dim); margin-top: 2px; }
+.hero-tile-star { font-size: 11px; color: var(--accent); margin-top: 4px; letter-spacing: 1px; }
+.hero-tile-lvl { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+.hero-tile-locked-note { font-size: 10px; color: var(--text-dim); margin-top: 6px; font-style: italic; }
+.hero-tile-btns { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+.tile-btn { border: none; border-radius: 8px; padding: 6px; background: var(--card-2); color: var(--text); font-weight: 700; font-size: 11px; cursor: pointer; }
+.tile-btn:disabled { opacity: 0.4; }
+
+/* ------------------------------ Takım ------------------------------ */
+.team-slots { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-bottom: 16px; }
+.team-slot { aspect-ratio: 1; border-radius: 12px; background: linear-gradient(145deg, #322a52, #14101f); border: 1px solid var(--border); display: flex; flex-direction: column; align-items: center; justify-content: center; cursor: pointer; position: relative; }
+.team-slot.empty { background: var(--card); border: 1px dashed var(--border); }
+.team-slot-icon { font-size: 22px; }
+.team-slot-star { font-size: 8px; color: var(--accent); position: absolute; bottom: 3px; }
+.team-slot-plus { color: var(--text-dim); font-weight: 800; }
+
+/* ------------------------------ Çağırma ------------------------------ */
+.banner-card.standard { border-color: var(--r-rare); }
+.banner-card.premium { border-color: var(--r-legendary); box-shadow: 0 0 16px rgba(255,210,77,0.15); }
+.summon-btn-row { display: flex; gap: 8px; margin-top: 8px; }
+.summon-btn-row .btn { margin-bottom: 0; }
+
+.summon-result-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin: 12px 0; max-height: 50vh; overflow-y: auto; }
+.summon-result-card { border-radius: 10px; padding: 10px; text-align: center; background: var(--card-2); border: 2px solid var(--r-common); }
+.summon-result-card.rarity-common { border-color: var(--r-common); }
+.summon-result-card.rarity-rare { border-color: var(--r-rare); }
+.summon-result-card.rarity-epic { border-color: var(--r-epic); }
+.summon-result-card.rarity-legendary { border-color: var(--r-legendary); box-shadow: 0 0 12px rgba(255,210,77,0.3); }
+.summon-result-icon { font-size: 26px; }
+.summon-result-name { font-size: 11px; font-weight: 700; margin-top: 2px; }
+.summon-result-rarity { font-size: 10px; color: var(--text-dim); }
+.summon-result-new { font-size: 10px; color: var(--success); font-weight: 800; margin-top: 3px; }
+.summon-result-dupe { font-size: 10px; color: var(--text-dim); margin-top: 3px; }
+
+/* ------------------------------ Bölge listesi ------------------------------ */
+.stage-list { display: flex; flex-direction: column; gap: 8px; }
+.stage-row { display: flex; align-items: center; gap: 12px; background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; cursor: pointer; }
+.stage-row.locked { opacity: 0.45; cursor: default; }
+.stage-row.boss { border-color: var(--r-legendary); }
+.stage-row-num { width: 30px; height: 30px; border-radius: 50%; background: var(--card-2); display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 13px; }
+.stage-row-main { flex: 1; }
+.stage-row-name { font-weight: 700; font-size: 14px; }
+.stage-row-stars { font-size: 12px; color: var(--accent); margin-top: 2px; }
+.stage-row-go { font-size: 16px; }
+
+/* ------------------------------ Mağaza ------------------------------ */
+.demo-shop-note { font-size: 12px; color: var(--text-dim); background: var(--card); border: 1px dashed var(--border); border-radius: 10px; padding: 8px 12px; margin-bottom: 12px; }
+.pack-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+.pack-card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 14px; text-align: center; position: relative; }
+.pack-card.starter { border-color: var(--r-legendary); box-shadow: 0 0 14px rgba(255,210,77,0.2); }
+.pack-tag { position: absolute; top: -8px; left: 50%; transform: translateX(-50%); background: var(--accent-grad); color: #2b1500; font-size: 9px; font-weight: 800; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+.pack-icon { font-size: 28px; }
+.pack-amount { font-weight: 800; font-size: 16px; margin: 4px 0; }
+.pack-buy-btn { width: 100%; border: none; border-radius: 10px; padding: 9px; background: var(--accent-grad); color: #2b1500; font-weight: 800; font-size: 13px; cursor: pointer; }
+
+/* ------------------------------ Savaş ekranı ------------------------------ */
+.screen-battle { padding: calc(8px + var(--safe-top)) 10px calc(8px + var(--safe-bottom)); }
+.battle-topbar { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.battle-exit { width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--border); background: var(--card); color: var(--text); font-size: 16px; cursor: pointer; }
+.battle-stage-pill, .battle-timer-pill { background: var(--card); border: 1px solid var(--border); border-radius: 999px; padding: 5px 11px; font-size: 12px; font-weight: 700; }
+.battle-stage-pill { flex: 1; text-align: center; }
+.battle-speed-btn { width: 40px; height: 32px; border-radius: 10px; border: 1px solid var(--border); background: var(--card-2); color: var(--accent); font-weight: 800; cursor: pointer; }
+
+.battle-canvas-wrap { flex: 1; border-radius: 14px; overflow: hidden; border: 1px solid var(--border); width: 100%; }
+#battleCanvas { display: block; width: 100%; height: 100%; }
+
+/* ------------------------------ Modal / toast ------------------------------ */
+.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.65); z-index: 500; display: flex; align-items: center; justify-content: center; padding: 24px; }
+.modal { background: var(--bg-2); border: 1px solid var(--border); border-radius: 18px; padding: 22px; max-width: 340px; width: 100%; max-height: 80vh; overflow-y: auto; }
+.modal h3 { margin: 0 0 10px; }
+.modal textarea { background: var(--card); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 8px; font-size: 12px; width: 100%; }
+
+.result-modal { text-align: center; }
+.result-icon { font-size: 56px; }
+.result-modal h2 { margin: 8px 0; }
+.result-stars { font-size: 26px; color: var(--accent); letter-spacing: 4px; margin-bottom: 12px; }
+.result-rewards { display: flex; flex-direction: column; gap: 6px; margin-bottom: 18px; font-weight: 700; color: var(--success); }
+
+.toast-area { position: fixed; top: calc(10px + var(--safe-top)); left: 0; right: 0; z-index: 600; display: flex; flex-direction: column; align-items: center; gap: 8px; pointer-events: none; }
+.toast { background: rgba(24,20,38,0.95); color: var(--text); border: 1px solid var(--border); padding: 9px 16px; border-radius: 999px; font-size: 13px; font-weight: 600; opacity: 0; transform: translateY(-10px); transition: all 0.25s ease; max-width: 85%; }
+.toast.show { opacity: 1; transform: translateY(0); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }
+}
