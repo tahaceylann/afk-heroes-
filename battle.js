@@ -52,7 +52,7 @@ function startBattle(stageIdx) {
     const st = heroStats(id);
     return {
       uid: unitUidCounter++, side: "player", slot: i, heroId: id,
-      name: def.name, icon: def.icon, role: def.role, element: def.element,
+      name: def.name, icon: def.icon, role: def.role, element: def.element, rarity: def.rarity,
       hp: st.hp, maxHp: st.hp, atk: st.atk, spd: st.spd,
       atkTimer: 0.3 + i * 0.15, ultGauge: 0, flashUntil: 0, alive: true,
     };
@@ -61,6 +61,7 @@ function startBattle(stageIdx) {
   enemyUnits = enemySquad.map((e, i) => ({
     uid: unitUidCounter++, side: "enemy", slot: i,
     name: e.name, icon: e.icon, role: e.role, element: e.element, isBoss: !!e.isBoss,
+    rarity: e.isBoss ? "legendary" : "common",
     hp: e.hp, maxHp: e.hp, atk: e.atk, spd: e.spd,
     atkTimer: 0.5 + i * 0.15, ultGauge: 0, flashUntil: 0, alive: true,
   }));
@@ -345,9 +346,7 @@ function renderBattle() {
   let ox = 0, oy = 0;
   if (shakeTime > 0) { shakeTime -= 1 / 60; ox = (Math.random() - 0.5) * shakeMag; oy = (Math.random() - 0.5) * shakeMag; ctx.translate(ox, oy); }
 
-  const bg = ctx.createLinearGradient(0, 0, w, h);
-  bg.addColorStop(0, "#161225"); bg.addColorStop(1, "#0c0f16");
-  ctx.fillStyle = bg; ctx.fillRect(-10, -10, w + 20, h + 20);
+  drawCrystalCavernBackground(w, h);
 
   ctx.strokeStyle = "rgba(255,255,255,0.06)";
   ctx.beginPath(); ctx.moveTo(w / 2, 0); ctx.lineTo(w / 2, h); ctx.stroke();
@@ -365,6 +364,60 @@ function renderBattle() {
   ctx.restore();
 }
 
+// Temanın parçası: savaş sahnesi düz bir degrade yerine kristal bir
+// mağara/arena hissi versin — arka planda karanlık dağ/mağara silüetleri,
+// yan duvarlarda parıldayan kristal formasyonları, altıgen döşeli bir zemin.
+let cavernSeed = null;
+function drawCrystalCavernBackground(w, h) {
+  const bg = ctx.createLinearGradient(0, 0, 0, h);
+  bg.addColorStop(0, "#1c1533"); bg.addColorStop(0.55, "#120d22"); bg.addColorStop(1, "#0a0714");
+  ctx.fillStyle = bg; ctx.fillRect(-10, -10, w + 20, h + 20);
+
+  if (!cavernSeed) {
+    cavernSeed = { silhouettes: [], crystals: [] };
+    for (let i = 0; i < 7; i++) {
+      cavernSeed.silhouettes.push({ x: (i / 6) * 1.2 - 0.1, w: 0.18 + Math.random() * 0.16, h: 0.35 + Math.random() * 0.35 });
+    }
+    for (let i = 0; i < 10; i++) {
+      cavernSeed.crystals.push({
+        x: Math.random() < 0.5 ? Math.random() * 0.1 : 0.9 + Math.random() * 0.1,
+        y: 0.15 + Math.random() * 0.7, s: 0.02 + Math.random() * 0.035,
+        pal: [ELEMENT_PALETTE.fire, ELEMENT_PALETTE.water, ELEMENT_PALETTE.nature][i % 3],
+        phase: Math.random() * 10,
+      });
+    }
+  }
+
+  // uzak dağ/mağara silüetleri
+  ctx.fillStyle = "rgba(30,20,55,0.55)";
+  cavernSeed.silhouettes.forEach(s => {
+    const bx = s.x * w, bw = s.w * w, bh = s.h * h;
+    ctx.beginPath();
+    ctx.moveTo(bx, h);
+    ctx.lineTo(bx + bw * 0.5, h - bh);
+    ctx.lineTo(bx + bw, h);
+    ctx.closePath();
+    ctx.fill();
+  });
+
+  // yan duvarlarda parıldayan kristal kümeleri (temayı taşır)
+  cavernSeed.crystals.forEach(c => {
+    const cx = c.x * w, cy = c.y * h, r = c.s * Math.min(w, h);
+    const glow = 0.5 + Math.sin(clock * 1.4 + c.phase) * 0.25;
+    ctx.save();
+    ctx.globalAlpha = glow;
+    drawFacetShape(ctx, ROLE_SHAPES.assassin, cx, cy, r, c.pal);
+    ctx.restore();
+  });
+
+  // altıgen dokulu zemin çizgisi (perspektif hissi için basit yatay çizgiler)
+  ctx.strokeStyle = "rgba(255,255,255,0.03)";
+  for (let i = 1; i < 5; i++) {
+    const y = h * (0.7 + i * 0.07);
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+  }
+}
+
 function drawShieldAura(cx, h) {
   ctx.save();
   ctx.globalAlpha = 0.08 + Math.sin(clock * 4) * 0.03;
@@ -376,37 +429,28 @@ function drawShieldAura(cx, h) {
 function drawUnit(u) {
   const x = unitX(u), y = unitY(u);
   const r = u.isBoss ? 34 : 26;
+
+  const flashAlpha = (u.flashUntil && u.flashUntil > clock) ? 0.55 : 0;
+  drawCrystalBeing(ctx, x, y, r, {
+    role: u.role, element: u.element, rarity: u.rarity, alive: u.alive,
+    flashAlpha, spinT: (clock * 0.15 + u.slot * 0.3) % 1,
+  });
+
+  // taraf halkası (oyuncu/düşman ayrımı)
   ctx.save();
-  if (!u.alive) ctx.globalAlpha = 0.25;
-
-  ctx.beginPath();
-  ctx.arc(x, y, r, 0, Math.PI * 2);
-  const grad = ctx.createRadialGradient(x - r * 0.3, y - r * 0.3, r * 0.1, x, y, r);
-  const roleColor = { tank: "#66e0ff", fighter: "#ff8a3d", assassin: "#c77bff", mage: "#ff4d6a", healer: "#4dd68a" }[u.role] || "#8fa3c7";
-  grad.addColorStop(0, "#fff"); grad.addColorStop(0.25, roleColor); grad.addColorStop(1, "#10141d");
-  ctx.fillStyle = grad;
-  ctx.fill();
-  ctx.lineWidth = 2; ctx.strokeStyle = u.side === "player" ? "#66e0ff" : "#ff4d6a"; ctx.stroke();
-
-  if (u.flashUntil && u.flashUntil > clock) {
-    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fillStyle = "rgba(255,255,255,0.5)"; ctx.fill();
-  }
-
-  // ult gauge ring
-  if (u.alive && u.ultGauge > 0) {
-    ctx.beginPath();
-    ctx.arc(x, y, r + 4, -Math.PI / 2, -Math.PI / 2 + (u.ultGauge / 100) * Math.PI * 2);
-    ctx.strokeStyle = "#ffd24d"; ctx.lineWidth = 3; ctx.stroke();
-  }
+  ctx.beginPath(); ctx.arc(x, y, r + 7, 0, Math.PI * 2);
+  ctx.strokeStyle = u.side === "player" ? "rgba(102,224,255,0.5)" : "rgba(255,77,106,0.5)";
+  ctx.lineWidth = 1.5; ctx.stroke();
   ctx.restore();
 
-  ctx.font = Math.round(r * 1.05) + "px sans-serif";
-  ctx.textAlign = "center"; ctx.textBaseline = "middle";
-  ctx.globalAlpha = u.alive ? 1 : 0.3;
-  ctx.fillText(u.icon, x, y + 1);
-  ctx.globalAlpha = 1;
+  // ult gauge halkası
+  if (u.alive && u.ultGauge > 0) {
+    ctx.beginPath();
+    ctx.arc(x, y, r + 11, -Math.PI / 2, -Math.PI / 2 + (u.ultGauge / 100) * Math.PI * 2);
+    ctx.strokeStyle = "#ffd24d"; ctx.lineWidth = 3; ctx.stroke();
+  }
 
-  ctx.font = "10px sans-serif"; ctx.fillStyle = "rgba(255,255,255,0.8)";
+  ctx.font = "10px sans-serif"; ctx.fillStyle = "rgba(255,255,255,0.8)"; ctx.textAlign = "center";
   ctx.fillText(u.name, x, y + r + 13);
 
   const barW = 50, barH = 5;

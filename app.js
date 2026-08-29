@@ -310,8 +310,11 @@ function renderHome() {
     const el = document.createElement("div");
     el.className = "mini-hero" + (id ? "" : " empty");
     if (id) {
-      const def = charDef(id);
-      el.innerHTML = `<span class="mini-hero-icon">${def.icon}</span><span class="mini-hero-star">★${heroStar(id)}</span>`;
+      mountHeroIcon(el, id, 34);
+      const star = document.createElement("span");
+      star.className = "mini-hero-star";
+      star.textContent = "★" + heroStar(id);
+      el.appendChild(star);
     } else {
       el.innerHTML = `<span class="mini-hero-plus">+</span>`;
     }
@@ -354,7 +357,7 @@ function renderRosterScreen() {
       const lvlCost = levelUpGoldCost(level);
       const canLevel = level < MAX_LEVEL;
       el.innerHTML = `
-        <div class="hero-tile-icon">${def.icon}</div>
+        <div class="hero-tile-icon"></div>
         <div class="hero-tile-name">${def.name}</div>
         <div class="hero-tile-meta">${ROLE_LABEL[def.role]} · ${ELEMENT_LABEL[def.element]}</div>
         <div class="hero-tile-star">${"★".repeat(star)}${"☆".repeat(MAX_STAR - star)}</div>
@@ -364,17 +367,21 @@ function renderRosterScreen() {
           ${canStar ? `<button class="tile-btn" data-star="${def.id}" ${shards >= stCost ? "" : "disabled"}>🌟${shards}/${stCost}</button>` : ""}
         </div>
       `;
+      mountHeroIcon(el.querySelector(".hero-tile-icon"), def.id, 44);
       const lvlBtn = el.querySelector("[data-lvl]");
       if (lvlBtn) lvlBtn.addEventListener("click", () => levelUpHero(def.id));
       const starBtn = el.querySelector("[data-star]");
       if (starBtn) starBtn.addEventListener("click", () => starUpHero(def.id));
     } else {
       el.innerHTML = `
-        <div class="hero-tile-icon">${def.icon}</div>
+        <div class="hero-tile-icon"></div>
         <div class="hero-tile-name">${def.name}</div>
         <div class="hero-tile-meta">${RARITY_LABEL[def.rarity]} · Kilitli</div>
         <div class="hero-tile-locked-note">Çağırarak kazan</div>
       `;
+      const iconEl = el.querySelector(".hero-tile-icon");
+      iconEl.appendChild(crystalIconCanvas(def.role, def.element, def.rarity, 44));
+      iconEl.style.filter = "grayscale(0.7) brightness(0.6)";
     }
     grid.appendChild(el);
   });
@@ -413,8 +420,8 @@ function renderTeamScreen() {
     const el = document.createElement("div");
     el.className = "team-slot" + (id ? "" : " empty");
     if (id) {
-      const def = charDef(id);
-      el.innerHTML = `<span class="team-slot-icon">${def.icon}</span><span class="team-slot-star">★${heroStar(id)}</span>`;
+      el.innerHTML = `<span class="team-slot-star">★${heroStar(id)}</span>`;
+      mountHeroIcon(el, id, 36);
       el.addEventListener("click", () => { state.team[i] = null; saveState(); renderTeamScreen(); });
     } else {
       el.innerHTML = `<span class="team-slot-plus">${i + 1}</span>`;
@@ -433,10 +440,11 @@ function renderTeamScreen() {
     const el = document.createElement("div");
     el.className = `hero-tile small rarity-${def.rarity}` + (inTeam ? " in-team" : "");
     el.innerHTML = `
-      <div class="hero-tile-icon">${def.icon}</div>
+      <div class="hero-tile-icon"></div>
       <div class="hero-tile-name">${def.name}</div>
       <div class="hero-tile-star">${"★".repeat(heroStar(id))}</div>
     `;
+    mountHeroIcon(el.querySelector(".hero-tile-icon"), id, 34);
     el.addEventListener("click", () => {
       if (inTeam) {
         const idx = state.team.indexOf(id);
@@ -469,9 +477,9 @@ function summonAndShow(banner, count) {
 }
 
 function showSummonResultModal(results) {
-  const cards = results.map(r => `
+  const cards = results.map((r, i) => `
     <div class="summon-result-card rarity-${r.def.rarity}">
-      <div class="summon-result-icon">${r.def.icon}</div>
+      <div class="summon-result-icon" data-idx="${i}"></div>
       <div class="summon-result-name">${r.def.name}</div>
       <div class="summon-result-rarity">${RARITY_LABEL[r.def.rarity]}</div>
       ${r.isDupe ? `<div class="summon-result-dupe">🔩 Tekrar → Parça</div>` : `<div class="summon-result-new">✨ YENİ!</div>`}
@@ -482,6 +490,10 @@ function showSummonResultModal(results) {
     <div class="summon-result-grid">${cards}</div>
     <button class="btn btn-primary" id="summonResultCloseBtn">Tamam</button>
   `);
+  document.querySelectorAll(".summon-result-icon").forEach(el => {
+    const r = results[Number(el.dataset.idx)];
+    el.appendChild(crystalIconCanvas(r.def.role, r.def.element, r.def.rarity, 36));
+  });
   document.getElementById("summonResultCloseBtn").addEventListener("click", closeModal);
 }
 
@@ -670,6 +682,11 @@ if ("serviceWorker" in navigator) {
 }
 
 window.addEventListener("DOMContentLoaded", () => {
+  const splashIconEl = document.getElementById("splashCrystalIcon");
+  if (splashIconEl) splashIconEl.appendChild(crystalIconCanvas("fighter", "fire", "legendary", 92));
+  const homeIconEl = document.getElementById("homeCrystalIcon");
+  if (homeIconEl) homeIconEl.appendChild(crystalIconCanvas("fighter", "fire", "legendary", 64));
+
   const splash = document.getElementById("splash");
   const appEl = document.getElementById("app");
   const barFill = document.getElementById("splashBarFill");

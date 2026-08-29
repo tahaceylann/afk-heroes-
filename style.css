@@ -26,6 +26,13 @@
   --r-legendary: #ffd24d;
 }
 
+/* "Kristal" tema imzası: büyük kart/buton yüzeylerinin iki köşesi kesik
+   (facet-cut) — jenerik yuvarlak köşeli kutu yerine, oyunun kristal
+   motifini arayüz zincirinde de tekrar eden tutarlı bir kimlik. */
+.panel-card, .hero-tile, .pack-card, .btn-primary, .btn-fight, .pack-buy-btn, .stage-row {
+  clip-path: polygon(14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%, 0 14px);
+}
+
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 html, body {
   margin: 0; padding: 0; height: 100%;
@@ -112,7 +119,7 @@ button { font-family: inherit; }
   border: 1px solid var(--border); position: relative;
 }
 .mini-hero.empty { opacity: 0.4; border-style: dashed; }
-.mini-hero-icon { font-size: 18px; }
+.crystal-icon { display: block; }
 .mini-hero-star { font-size: 8px; color: var(--accent); position: absolute; bottom: 2px; font-weight: 700; }
 .mini-hero-plus { font-size: 18px; color: var(--text-dim); }
 
@@ -147,8 +154,8 @@ button { font-family: inherit; }
 .hero-tile.rarity-rare { border-color: var(--r-rare); }
 .hero-tile.rarity-epic { border-color: var(--r-epic); }
 .hero-tile.rarity-legendary { border-color: var(--r-legendary); box-shadow: 0 0 14px rgba(255,210,77,0.25); }
-.hero-tile-icon { font-size: 30px; }
-.hero-tile.small .hero-tile-icon { font-size: 22px; }
+.hero-tile-icon { display: flex; align-items: center; justify-content: center; min-height: 44px; }
+.hero-tile.small .hero-tile-icon { min-height: 34px; }
 .hero-tile-name { font-weight: 700; font-size: 12px; margin-top: 4px; }
 .hero-tile-meta { font-size: 10px; color: var(--text-dim); margin-top: 2px; }
 .hero-tile-star { font-size: 11px; color: var(--accent); margin-top: 4px; letter-spacing: 1px; }
@@ -162,7 +169,6 @@ button { font-family: inherit; }
 .team-slots { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-bottom: 16px; }
 .team-slot { aspect-ratio: 1; border-radius: 12px; background: linear-gradient(145deg, #322a52, #14101f); border: 1px solid var(--border); display: flex; flex-direction: column; align-items: center; justify-content: center; cursor: pointer; position: relative; }
 .team-slot.empty { background: var(--card); border: 1px dashed var(--border); }
-.team-slot-icon { font-size: 22px; }
 .team-slot-star { font-size: 8px; color: var(--accent); position: absolute; bottom: 3px; }
 .team-slot-plus { color: var(--text-dim); font-weight: 800; }
 
@@ -178,7 +184,7 @@ button { font-family: inherit; }
 .summon-result-card.rarity-rare { border-color: var(--r-rare); }
 .summon-result-card.rarity-epic { border-color: var(--r-epic); }
 .summon-result-card.rarity-legendary { border-color: var(--r-legendary); box-shadow: 0 0 12px rgba(255,210,77,0.3); }
-.summon-result-icon { font-size: 26px; }
+.summon-result-icon { display: flex; align-items: center; justify-content: center; min-height: 36px; }
 .summon-result-name { font-size: 11px; font-weight: 700; margin-top: 2px; }
 .summon-result-rarity { font-size: 10px; color: var(--text-dim); }
 .summon-result-new { font-size: 10px; color: var(--success); font-weight: 800; margin-top: 3px; }
