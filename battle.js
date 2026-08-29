@@ -346,7 +346,7 @@ function renderBattle() {
   let ox = 0, oy = 0;
   if (shakeTime > 0) { shakeTime -= 1 / 60; ox = (Math.random() - 0.5) * shakeMag; oy = (Math.random() - 0.5) * shakeMag; ctx.translate(ox, oy); }
 
-  drawCrystalCavernBackground(w, h);
+  drawForestBattleBackground(w, h);
 
   ctx.strokeStyle = "rgba(255,255,255,0.06)";
   ctx.beginPath(); ctx.moveTo(w / 2, 0); ctx.lineTo(w / 2, h); ctx.stroke();
@@ -364,58 +364,107 @@ function renderBattle() {
   ctx.restore();
 }
 
-// Temanın parçası: savaş sahnesi düz bir degrade yerine kristal bir
-// mağara/arena hissi versin — arka planda karanlık dağ/mağara silüetleri,
-// yan duvarlarda parıldayan kristal formasyonları, altıgen döşeli bir zemin.
-let cavernSeed = null;
-function drawCrystalCavernBackground(w, h) {
+// Sahne teması: "Büyülü Orman" — savaş, alacakaranlık bir orman
+// açıklığında geçiyor. Karanlık ağaç gövdeleri sahneyi çerçeveliyor,
+// tepeden süzülen ışık hüzmeleri ve toprakta parıldayan kristal
+// mantarlar/çiçekler (oyunun "kristal varlık" kimliğiyle bağı koruyor).
+let forestSeed = null;
+function drawForestBattleBackground(w, h) {
   const bg = ctx.createLinearGradient(0, 0, 0, h);
-  bg.addColorStop(0, "#1c1533"); bg.addColorStop(0.55, "#120d22"); bg.addColorStop(1, "#0a0714");
+  bg.addColorStop(0, "#0e2418"); bg.addColorStop(0.45, "#122c1d"); bg.addColorStop(1, "#0a1a12");
   ctx.fillStyle = bg; ctx.fillRect(-10, -10, w + 20, h + 20);
 
-  if (!cavernSeed) {
-    cavernSeed = { silhouettes: [], crystals: [] };
-    for (let i = 0; i < 7; i++) {
-      cavernSeed.silhouettes.push({ x: (i / 6) * 1.2 - 0.1, w: 0.18 + Math.random() * 0.16, h: 0.35 + Math.random() * 0.35 });
-    }
-    for (let i = 0; i < 10; i++) {
-      cavernSeed.crystals.push({
-        x: Math.random() < 0.5 ? Math.random() * 0.1 : 0.9 + Math.random() * 0.1,
-        y: 0.15 + Math.random() * 0.7, s: 0.02 + Math.random() * 0.035,
-        pal: [ELEMENT_PALETTE.fire, ELEMENT_PALETTE.water, ELEMENT_PALETTE.nature][i % 3],
-        phase: Math.random() * 10,
+  if (!forestSeed) {
+    forestSeed = { trunks: [], canopy: [], glows: [], fireflies: [] };
+    for (let i = 0; i < 6; i++) {
+      forestSeed.trunks.push({
+        x: (i / 5) * 1.15 - 0.075 + (Math.random() - 0.5) * 0.05,
+        w: 0.05 + Math.random() * 0.05, lean: (Math.random() - 0.5) * 0.06,
+        near: i % 2 === 0,
       });
+    }
+    for (let i = 0; i < 9; i++) {
+      forestSeed.canopy.push({ x: Math.random(), w: 0.16 + Math.random() * 0.18, h: 0.10 + Math.random() * 0.14 });
+    }
+    for (let i = 0; i < 6; i++) {
+      forestSeed.glows.push({
+        x: 0.08 + Math.random() * 0.84, y: 0.78 + Math.random() * 0.16, s: 0.012 + Math.random() * 0.018,
+        pal: [ELEMENT_PALETTE.fire, ELEMENT_PALETTE.water, ELEMENT_PALETTE.nature][i % 3], phase: Math.random() * 10,
+      });
+    }
+    for (let i = 0; i < 14; i++) {
+      forestSeed.fireflies.push({ x: Math.random(), y: 0.3 + Math.random() * 0.6, phase: Math.random() * 10, speed: 0.3 + Math.random() * 0.4 });
     }
   }
 
-  // uzak dağ/mağara silüetleri
-  ctx.fillStyle = "rgba(30,20,55,0.55)";
-  cavernSeed.silhouettes.forEach(s => {
-    const bx = s.x * w, bw = s.w * w, bh = s.h * h;
+  // tepeden süzülen ışık hüzmeleri (canopy aralıklarından)
+  ctx.save();
+  [0.28, 0.62].forEach((fx, i) => {
+    const bx = fx * w;
+    const grad = ctx.createLinearGradient(bx - w * 0.12, 0, bx + w * 0.12, h * 0.9);
+    grad.addColorStop(0, "rgba(214,255,176,0)");
+    grad.addColorStop(0.5, `rgba(214,255,176,${0.07 + Math.sin(clock * 0.6 + i) * 0.02})`);
+    grad.addColorStop(1, "rgba(214,255,176,0)");
+    ctx.fillStyle = grad;
     ctx.beginPath();
-    ctx.moveTo(bx, h);
-    ctx.lineTo(bx + bw * 0.5, h - bh);
-    ctx.lineTo(bx + bw, h);
-    ctx.closePath();
+    ctx.moveTo(bx - w * 0.05, 0); ctx.lineTo(bx + w * 0.05, 0);
+    ctx.lineTo(bx + w * 0.16, h * 0.95); ctx.lineTo(bx - w * 0.16, h * 0.95);
+    ctx.closePath(); ctx.fill();
+  });
+  ctx.restore();
+
+  // üstten sarkan yaprak/tepe silüetleri
+  ctx.fillStyle = "rgba(6,18,10,0.85)";
+  forestSeed.canopy.forEach(c => {
+    const cx = c.x * w, cw = c.w * w, chh = c.h * h;
+    ctx.beginPath();
+    ctx.ellipse(cx, -chh * 0.3, cw * 0.5, chh, 0, 0, Math.PI * 2);
     ctx.fill();
   });
 
-  // yan duvarlarda parıldayan kristal kümeleri (temayı taşır)
-  cavernSeed.crystals.forEach(c => {
-    const cx = c.x * w, cy = c.y * h, r = c.s * Math.min(w, h);
-    const glow = 0.5 + Math.sin(clock * 1.4 + c.phase) * 0.25;
+  // ağaç gövdeleri (yakın olanlar daha koyu/kalın, sahneyi çerçeveler)
+  forestSeed.trunks.forEach(t => {
+    const bx = t.x * w, bw = t.w * w * (t.near ? 1.6 : 1);
     ctx.save();
-    ctx.globalAlpha = glow;
-    drawFacetShape(ctx, ROLE_SHAPES.assassin, cx, cy, r, c.pal);
+    ctx.fillStyle = t.near ? "rgba(6,14,9,0.95)" : "rgba(14,28,18,0.7)";
+    ctx.beginPath();
+    ctx.moveTo(bx - bw / 2, h);
+    ctx.lineTo(bx - bw / 2 + t.lean * w, 0);
+    ctx.lineTo(bx + bw / 2 + t.lean * w, 0);
+    ctx.lineTo(bx + bw / 2, h);
+    ctx.closePath();
+    ctx.fill();
     ctx.restore();
   });
 
-  // altıgen dokulu zemin çizgisi (perspektif hissi için basit yatay çizgiler)
-  ctx.strokeStyle = "rgba(255,255,255,0.03)";
-  for (let i = 1; i < 5; i++) {
-    const y = h * (0.7 + i * 0.07);
-    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
-  }
+  // toprakta parıldayan kristal mantar/çiçekler — temanın devamlılığı
+  forestSeed.glows.forEach(g => {
+    const gx = g.x * w, gy = g.y * h, r = g.s * Math.min(w, h);
+    const glow = 0.55 + Math.sin(clock * 1.5 + g.phase) * 0.25;
+    ctx.save();
+    ctx.globalAlpha = glow;
+    drawFacetShape(ctx, ROLE_SHAPES.assassin, gx, gy, r, g.pal);
+    ctx.restore();
+  });
+
+  // ateşböcekleri / süzülen polen
+  forestSeed.fireflies.forEach(f => {
+    const fx = (f.x + Math.sin(clock * 0.2 + f.phase) * 0.02) * w;
+    const fy = (f.y - ((clock * f.speed * 0.02 + f.phase) % 1) * 0.15) * h;
+    const tw = 0.4 + Math.sin(clock * 3 + f.phase) * 0.4;
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, tw);
+    ctx.fillStyle = "#d8ff8a";
+    ctx.beginPath(); ctx.arc(fx, fy, 1.6, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  });
+
+  // zemin (yosunlu toprak) ve ufuk çizgisi
+  const groundGrad = ctx.createLinearGradient(0, h * 0.86, 0, h);
+  groundGrad.addColorStop(0, "rgba(20,38,22,0)");
+  groundGrad.addColorStop(1, "rgba(8,18,10,0.65)");
+  ctx.fillStyle = groundGrad;
+  ctx.fillRect(0, h * 0.86, w, h * 0.14);
 }
 
 function drawShieldAura(cx, h) {
