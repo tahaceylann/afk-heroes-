@@ -1,7 +1,7 @@
 /* Efsane Çağrısı — service worker: basit "önbellek öncelikli" offline destek. */
-const CACHE_NAME = "efsane-cagrisi-v2";
+const CACHE_NAME = "efsane-cagrisi-v3";
 const CORE_ASSETS = [
-  "./", "./index.html", "./style.css", "./theme.js", "./app.js", "./battle.js", "./manifest.json",
+  "./", "./index.html", "./style.css", "./vendor/three.min.js", "./theme.js", "./app.js", "./battle.js", "./manifest.json",
   "./icons/icon-192.png", "./icons/icon-512.png", "./icons/icon-180.png", "./icons/icon-32.png", "./icons/icon-16.png",
 ];
 

@@ -1,33 +1,39 @@
 /* ==========================================================================
-   Efsane Çağrısı — Otomatik savaş motoru + canvas render döngüsü.
-   app.js ile aynı global kapsamı paylaşır (state, CHARACTER_DEFS,
-   ENEMY_DEFS, generateStageEnemies, saveState, toast, switchScreen vb.
+   Efsane Çağrısı — Otomatik savaş motoru: gerçek 3D sahne (Three.js) +
+   savaş simülasyonu. app.js ile aynı global kapsamı paylaşır (state,
+   CHARACTER_DEFS, ENEMY_DEFS, generateStageEnemies, saveState, toast,
+   switchScreen, ELEMENT_PALETTE/ROLE_SHAPES gibi theme.js sabitleri vb.
    oradan gelir).
 
-   Tasarım: iki takım karşılıklı sabit "sıralarda" durur (klasik AFK-tarzı
-   gacha oyunları gibi hareket yok, sadece saldırı efektleri) — en öndeki
-   canlı düşman hedef alınır, bu da ön saftaki tank'ın "vuruş yemesini"
-   doğal bir strateji katmanı haline getirir.
+   Tasarım: iki takım "Büyülü Orman" sahnesinde karşılıklı sabit
+   noktalarda durur — en öndeki canlı düşman hedef alınır (tank'ın vuruş
+   yemesi doğal bir strateji katmanı). Görsel katman tamamen 3D: gerçek
+   derinlik, gölgeler, açılı kamera, kristal geometrili karakterler.
+   Simülasyon mantığı (hedefleme/hasar/ult) 2D sürümle neredeyse birebir
+   aynı — sadece render katmanı Canvas2D'den Three.js'e taşındı.
    ========================================================================== */
 "use strict";
 
-const BATTLE_TIME_LIMIT = 32; // saniye — süre dolarsa mağlubiyet
+const BATTLE_TIME_LIMIT = 32;
 const ULT_GAUGE_PER_HIT = 22;
 
-let canvas, ctx, canvasWrap;
-let dpr = 1;
+let battleScene, battleCamera, battleRenderer, canvasWrap;
+let battleInited = false;
 let battleActive = false;
 let battleRAF = null;
 let battleSpeed = 1;
+let battleClock = 0;
+let battleDpr = 1;
 
 let playerUnits = [];
 let enemyUnits = [];
-let particles = [];
-let clock = 0;
 let currentStageIdx = 0;
 let playerShieldUntil = 0, playerShieldMult = 1;
 let enemyShieldUntil = 0, enemyShieldMult = 1;
 let unitUidCounter = 1;
+let shieldDomeP = null, shieldDomeE = null;
+let transientObjs = []; // { obj, kind:'sprite'|'bolt', life, age, vx, vy, vz, onArrive }
+let camShake = 0;
 
 function elementMultiplier(atkElement, defElement) {
   if (ELEMENT_BEATS[atkElement] === defElement) return 1.3;
@@ -35,40 +41,243 @@ function elementMultiplier(atkElement, defElement) {
   return 1;
 }
 
-/* ============================== BAŞLAT / BİTİR ============================== */
+/* ==========================================================================
+   Sahne kurulumu (bir kez) — "Büyülü Orman": zemin, ağaçlar, sis, ışık.
+   ========================================================================== */
+function initBattleSceneIfNeeded() {
+  if (battleInited) return;
+  canvasWrap = document.getElementById("battleCanvasWrap");
+  if (!canvasWrap || typeof THREE === "undefined") return;
+  battleInited = true;
 
+  battleScene = new THREE.Scene();
+  battleScene.background = new THREE.Color(0x0e2418);
+  battleScene.fog = new THREE.Fog(0x0e2418, 9, 26);
+
+  battleCamera = new THREE.PerspectiveCamera(48, 1, 0.1, 100);
+  battleCamera.position.set(0, 6.1, 7.6);
+  battleCamera.lookAt(0, 0.5, -1.0);
+
+  battleRenderer = new THREE.WebGLRenderer({ antialias: true });
+  battleRenderer.shadowMap.enabled = true;
+  battleRenderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  battleRenderer.outputEncoding = THREE.sRGBEncoding;
+  battleRenderer.toneMapping = THREE.ACESFilmicToneMapping;
+  battleRenderer.toneMappingExposure = 1.1;
+  battleRenderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  canvasWrap.innerHTML = "";
+  canvasWrap.appendChild(battleRenderer.domElement);
+  resizeBattleRenderer();
+  window.addEventListener("resize", resizeBattleRenderer);
+
+  const hemi = new THREE.HemisphereLight(0x9fd6a0, 0x0c1a10, 0.65);
+  battleScene.add(hemi);
+  const sun = new THREE.DirectionalLight(0xffe9b0, 1.0);
+  sun.position.set(4, 8, 5);
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(1024, 1024);
+  sun.shadow.camera.near = 1; sun.shadow.camera.far = 24;
+  sun.shadow.camera.left = -9; sun.shadow.camera.right = 9;
+  sun.shadow.camera.top = 9; sun.shadow.camera.bottom = -9;
+  sun.shadow.bias = -0.0015;
+  battleScene.add(sun);
+  const ambient = new THREE.AmbientLight(0xffffff, 0.18);
+  battleScene.add(ambient);
+
+  const groundMat = new THREE.MeshStandardMaterial({ color: 0x1c3320, roughness: 0.95 });
+  const ground = new THREE.Mesh(new THREE.CircleGeometry(16, 32), groundMat);
+  ground.rotation.x = -Math.PI / 2;
+  ground.receiveShadow = true;
+  battleScene.add(ground);
+
+  buildForest();
+  spawnFireflies();
+
+  const godrayGeo = new THREE.PlaneGeometry(2.2, 14);
+  [-1.4, 1.6].forEach((x, i) => {
+    const mat = new THREE.MeshBasicMaterial({ color: 0xd6ffb0, transparent: true, opacity: 0.05, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+    const beam = new THREE.Mesh(godrayGeo, mat);
+    beam.position.set(x, 6, -0.5);
+    beam.rotation.x = -0.45;
+    beam.rotation.z = i === 0 ? 0.12 : -0.1;
+    beam.userData.baseOpacity = 0.05;
+    beam.userData.phase = i * 3;
+    battleScene.add(beam);
+  });
+
+  battleScene.userData.godrays = battleScene.children.filter(c => c.userData && c.userData.baseOpacity !== undefined);
+}
+
+function buildForest() {
+  const trunkMat = new THREE.MeshStandardMaterial({ color: 0x14100c, roughness: 1 });
+  const canopyMat = new THREE.MeshStandardMaterial({ color: 0x1f4a2c, roughness: 0.85 });
+  const ringRadii = [7.2, 10.5];
+  ringRadii.forEach((radius, ri) => {
+    const count = ri === 0 ? 10 : 14;
+    for (let i = 0; i < count; i++) {
+      const ang = (i / count) * Math.PI * 2 + ri * 0.3;
+      const x = Math.cos(ang) * radius, z = Math.sin(ang) * radius - 2;
+      if (Math.abs(x) < 3.8 && z > -4.2 && z < 4.2) continue; // savaş alanını boş bırak
+      const h = 3.2 + Math.random() * 2.2;
+      const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.22, h, 6), trunkMat);
+      trunk.position.set(x, h / 2, z);
+      trunk.castShadow = true;
+      battleScene.add(trunk);
+      const canopy = new THREE.Mesh(new THREE.IcosahedronGeometry(0.95 + Math.random() * 0.5, 0), canopyMat);
+      canopy.position.set(x, h + 0.6, z);
+      canopy.castShadow = true;
+      canopy.scale.y = 0.8;
+      battleScene.add(canopy);
+    }
+  });
+}
+
+let fireflies = [];
+function spawnFireflies() {
+  const tex = getDotTexture();
+  for (let i = 0; i < 16; i++) {
+    const mat = new THREE.SpriteMaterial({ map: tex, color: 0xd8ff8a, transparent: true, depthWrite: false });
+    const spr = new THREE.Sprite(mat);
+    const s = 0.06 + Math.random() * 0.05;
+    spr.scale.set(s, s, 1);
+    spr.position.set((Math.random() - 0.5) * 10, 0.5 + Math.random() * 3, (Math.random() - 0.5) * 8 - 1);
+    spr.userData.phase = Math.random() * 10;
+    spr.userData.speed = 0.15 + Math.random() * 0.2;
+    battleScene.add(spr);
+    fireflies.push(spr);
+  }
+}
+
+let dotTexture = null;
+function getDotTexture() {
+  if (dotTexture) return dotTexture;
+  const size = 32;
+  const c = document.createElement("canvas"); c.width = c.height = size;
+  const cx = c.getContext("2d");
+  const grad = cx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  grad.addColorStop(0, "rgba(255,255,255,0.95)"); grad.addColorStop(1, "rgba(255,255,255,0)");
+  cx.fillStyle = grad; cx.fillRect(0, 0, size, size);
+  dotTexture = new THREE.CanvasTexture(c);
+  return dotTexture;
+}
+
+function makeTextTexture(text, color, size) {
+  size = size || 128;
+  const c = document.createElement("canvas");
+  c.width = size * 2; c.height = size;
+  const cx = c.getContext("2d");
+  cx.font = "bold " + Math.round(size * 0.55) + "px sans-serif";
+  cx.textAlign = "center"; cx.textBaseline = "middle";
+  cx.fillStyle = color;
+  cx.shadowColor = "rgba(0,0,0,0.8)"; cx.shadowBlur = 6;
+  cx.fillText(String(text), c.width / 2, c.height / 2);
+  const tex = new THREE.CanvasTexture(c);
+  tex.needsUpdate = true;
+  return tex;
+}
+
+function resizeBattleRenderer() {
+  if (!canvasWrap || !battleRenderer) return;
+  const w = canvasWrap.clientWidth, h = canvasWrap.clientHeight;
+  if (!w || !h) return;
+  battleRenderer.setSize(w, h);
+  battleCamera.aspect = w / h;
+  battleCamera.updateProjectionMatrix();
+}
+
+/* ==========================================================================
+   Karakter geometrisi — role göre siluet, elemente göre renk (theme.js'teki
+   2D "Kristal Varlıklar" diliyle aynı mantık, şimdi gerçek 3D geometri).
+   ========================================================================== */
+function buildUnitMesh(role, element, rarity) {
+  const pal = ELEMENT_PALETTE[element] || ELEMENT_PALETTE.fire;
+  const color = new THREE.Color(pal.base);
+  const edge = new THREE.Color(pal.edge);
+  const mat = new THREE.MeshStandardMaterial({
+    color, emissive: color.clone().multiplyScalar(0.25), metalness: 0.35, roughness: 0.28,
+  });
+  let geo;
+  switch (role) {
+    case "tank": geo = new THREE.BoxGeometry(0.62, 0.7, 0.5); break;
+    case "fighter": geo = new THREE.OctahedronGeometry(0.42, 0); geo.scale(0.85, 1.25, 0.85); break;
+    case "assassin": geo = new THREE.OctahedronGeometry(0.32, 0); geo.scale(0.55, 1.5, 0.55); break;
+    case "mage": geo = new THREE.IcosahedronGeometry(0.4, 0); break;
+    case "healer": geo = new THREE.TorusGeometry(0.32, 0.13, 8, 6); break;
+    default: geo = new THREE.OctahedronGeometry(0.38, 0);
+  }
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.castShadow = true; mesh.receiveShadow = true;
+  mesh.userData.edgeColor = edge;
+  mesh.userData.baseColor = color;
+
+  const group = new THREE.Group();
+  group.add(mesh);
+  mesh.position.y = role === "tank" ? 0.35 : 0.42;
+
+  if (role === "mage") {
+    const satMat = new THREE.MeshStandardMaterial({ color, emissive: color.clone().multiplyScalar(0.4), metalness: 0.3, roughness: 0.3 });
+    for (let i = 0; i < 3; i++) {
+      const sat = new THREE.Mesh(new THREE.OctahedronGeometry(0.11, 0), satMat);
+      sat.castShadow = true;
+      sat.userData.orbit = i / 3;
+      group.add(sat);
+      group.userData.satellites = group.userData.satellites || [];
+      group.userData.satellites.push(sat);
+    }
+  }
+
+  // nadirlik aurası (epik/efsanevi): dönen ışıksız halka
+  if (rarity === "epic" || rarity === "legendary") {
+    const auraColor = rarity === "legendary" ? 0xffd24d : 0xc77bff;
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.62, 0.02, 6, 24), new THREE.MeshBasicMaterial({ color: auraColor, transparent: true, opacity: 0.55 }));
+    ring.rotation.x = Math.PI / 2.4;
+    ring.position.y = 0.42;
+    group.add(ring);
+    group.userData.auraRing = ring;
+  }
+
+  group.userData.mainMesh = mesh;
+  return group;
+}
+
+function makeBillboardBar(width) {
+  width = width || 0.85;
+  const g = new THREE.Group();
+  const bg = new THREE.Mesh(new THREE.PlaneGeometry(width, 0.11), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.5, depthTest: false }));
+  const fill = new THREE.Mesh(new THREE.PlaneGeometry(width, 0.11), new THREE.MeshBasicMaterial({ color: 0x4dd68a, depthTest: false }));
+  fill.position.z = 0.001;
+  g.add(bg, fill);
+  g.userData.fill = fill;
+  g.userData.width = width;
+  g.renderOrder = 10;
+  return g;
+}
+
+/* ==========================================================================
+   Başlat / bitir
+   ========================================================================== */
 function startBattle(stageIdx) {
   currentStageIdx = stageIdx;
-  clock = 0;
-  particles = [];
+  battleClock = 0;
   playerShieldUntil = 0; enemyShieldUntil = 0;
   battleSpeed = 1;
+  camShake = 0;
 
   const teamIds = state.team.filter(Boolean);
   if (!teamIds.length) { toast("Önce Takım ekranından kahraman seç!"); switchScreen("team"); return; }
 
-  playerUnits = teamIds.map((id, i) => {
-    const def = charDef(id);
-    const st = heroStats(id);
-    return {
-      uid: unitUidCounter++, side: "player", slot: i, heroId: id,
-      name: def.name, icon: def.icon, role: def.role, element: def.element, rarity: def.rarity,
-      hp: st.hp, maxHp: st.hp, atk: st.atk, spd: st.spd,
-      atkTimer: 0.3 + i * 0.15, ultGauge: 0, flashUntil: 0, alive: true,
-    };
-  });
-  const enemySquad = generateStageEnemies(stageIdx);
-  enemyUnits = enemySquad.map((e, i) => ({
-    uid: unitUidCounter++, side: "enemy", slot: i,
-    name: e.name, icon: e.icon, role: e.role, element: e.element, isBoss: !!e.isBoss,
-    rarity: e.isBoss ? "legendary" : "common",
-    hp: e.hp, maxHp: e.hp, atk: e.atk, spd: e.spd,
-    atkTimer: 0.5 + i * 0.15, ultGauge: 0, flashUntil: 0, alive: true,
-  }));
-
   switchScreen("battle");
-  initCanvasIfNeeded();
-  resizeCanvas();
+  initBattleSceneIfNeeded();
+  if (!battleInited) return;
+  clearUnits();
+  resizeBattleRenderer();
+
+  playerUnits = teamIds.map((id, i) => makeUnit("player", i, teamIds.length, {
+    heroId: id, def: charDef(id), stats: heroStats(id),
+  }));
+  const enemySquad = generateStageEnemies(stageIdx);
+  enemyUnits = enemySquad.map((e, i) => makeUnit("enemy", i, enemySquad.length, { enemyData: e }));
+
   updateBattleHud();
   battleActive = true;
   if (battleRAF) cancelAnimationFrame(battleRAF);
@@ -78,7 +287,7 @@ function startBattle(stageIdx) {
     const dt = Math.min(0.05, (ts - lastTs) / 1000) * battleSpeed;
     lastTs = ts;
     updateBattle(dt);
-    renderBattle();
+    renderBattleFrame(dt);
     battleRAF = requestAnimationFrame(loop);
   }
   battleRAF = requestAnimationFrame(loop);
@@ -87,13 +296,68 @@ function startBattle(stageIdx) {
   updateSpeedBtn();
 }
 
-function toggleBattleSpeed() {
-  battleSpeed = battleSpeed === 1 ? 2 : 1;
-  updateSpeedBtn();
+function makeUnit(side, slot, total, src) {
+  const isPlayer = side === "player";
+  const role = isPlayer ? src.def.role : src.enemyData.role;
+  const element = isPlayer ? src.def.element : src.enemyData.element;
+  const rarity = isPlayer ? src.def.rarity : (src.enemyData.isBoss ? "legendary" : "common");
+  const name = isPlayer ? src.def.name : src.enemyData.name;
+  const hp = isPlayer ? src.stats.hp : src.enemyData.hp;
+  const atk = isPlayer ? src.stats.atk : src.enemyData.atk;
+  const spd = isPlayer ? src.stats.spd : src.enemyData.spd;
+  const isBoss = !isPlayer && !!src.enemyData.isBoss;
+
+  // Portre yönü: taraflar derinlikte (Z) ayrılıyor, dar dikey mobil ekranda
+  // kameranın yatay (X) görüş açısı çok kısıtlı olduğundan yan yana (X)
+  // ayırmak birimleri kadraj dışına düşürüyordu — bkz. commit notu. 4-5
+  // kişilik takımların kadraj dışına taşmaması için aralık takım
+  // büyüklüğüne göre daralıyor.
+  const slotGap = total <= 3 ? 1.25 : total === 4 ? 1.0 : 0.86;
+  const baseX = (slot - (total - 1) / 2) * slotGap;
+  const baseZ = isPlayer ? 2.5 : -2.5;
+  const scale = isBoss ? 1.4 : 1;
+
+  const obj3d = buildUnitMesh(role, element, rarity);
+  obj3d.position.set(baseX, 0, baseZ);
+  obj3d.scale.setScalar(scale);
+  obj3d.userData.spawnAt = battleClock;
+  battleScene.add(obj3d);
+
+  const hpBar = makeBillboardBar(Math.min(0.85, slotGap * 0.9));
+  hpBar.position.set(baseX, 1.05 * scale, baseZ);
+  battleScene.add(hpBar);
+
+  const nameSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: makeTextTexture(name, "#ffffff", 40), transparent: true, depthTest: false }));
+  nameSprite.scale.set(0.72, 0.18, 1);
+  nameSprite.position.set(baseX, 1.28 * scale, baseZ);
+  nameSprite.renderOrder = 10;
+  battleScene.add(nameSprite);
+
+  return {
+    uid: unitUidCounter++, side, slot, heroId: src.heroId, isBoss,
+    name, role, element, rarity,
+    hp, maxHp: hp, atk, spd, scale,
+    baseX, baseZ, y: 0,
+    atkTimer: 0.35 + slot * 0.15, ultGauge: 0, flashUntil: 0, alive: true,
+    obj3d, hpBar, nameSprite, lungeT: 0, lungeTarget: null,
+  };
 }
-function updateSpeedBtn() {
-  document.getElementById("battleSpeedBtn").textContent = battleSpeed === 1 ? "1x" : "2x";
+
+function clearUnits() {
+  [...playerUnits, ...enemyUnits].forEach(disposeUnit);
+  playerUnits = []; enemyUnits = [];
+  transientObjs.forEach(t => removeTransient(t));
+  transientObjs = [];
+  if (shieldDomeP) { battleScene.remove(shieldDomeP); shieldDomeP = null; }
+  if (shieldDomeE) { battleScene.remove(shieldDomeE); shieldDomeE = null; }
 }
+function disposeUnit(u) {
+  battleScene.remove(u.obj3d, u.hpBar, u.nameSprite);
+  u.nameSprite.material.map.dispose(); u.nameSprite.material.dispose();
+}
+
+function toggleBattleSpeed() { battleSpeed = battleSpeed === 1 ? 2 : 1; updateSpeedBtn(); }
+function updateSpeedBtn() { document.getElementById("battleSpeedBtn").textContent = battleSpeed === 1 ? "1x" : "2x"; }
 
 function confirmExitBattle() {
   showModal(`<h3>Savaştan çık?</h3><p class="panel-desc">Bu savaştaki ilerlemen kaybolur.</p>
@@ -151,44 +415,22 @@ function endBattle(victory, silent) {
   document.getElementById("resultContinueBtn").addEventListener("click", () => { closeModal(); switchScreen("home"); });
 }
 
-/* ============================== CANVAS ============================== */
-
-function initCanvasIfNeeded() {
-  canvasWrap = document.getElementById("battleCanvasWrap");
-  canvas = document.getElementById("battleCanvas");
-  ctx = canvas.getContext("2d");
-  if (!canvas.dataset.wired) {
-    canvas.dataset.wired = "1";
-    window.addEventListener("resize", resizeCanvas);
-  }
-}
-
-function resizeCanvas() {
-  if (!canvasWrap) return;
-  const w = canvasWrap.clientWidth, h = canvasWrap.clientHeight;
-  if (!w || !h) return;
-  dpr = Math.min(window.devicePixelRatio || 1, 2);
-  canvas.width = w * dpr; canvas.height = h * dpr;
-  canvas.style.width = w + "px"; canvas.style.height = h + "px";
-}
-
-/* ============================== GÜNCELLEME ============================== */
-
+/* ==========================================================================
+   Simülasyon (2D sürümle aynı mantık) — hedefleme, hasar, ult tetikleme.
+   ========================================================================== */
 function updateBattle(dt) {
-  clock += dt;
-  if (playerShieldUntil && playerShieldUntil < clock) playerShieldUntil = 0;
-  if (enemyShieldUntil && enemyShieldUntil < clock) enemyShieldUntil = 0;
+  battleClock += dt;
+  if (playerShieldUntil && playerShieldUntil < battleClock) playerShieldUntil = 0;
+  if (enemyShieldUntil && enemyShieldUntil < battleClock) enemyShieldUntil = 0;
 
   processTeamTurns(playerUnits, enemyUnits, "player");
   processTeamTurns(enemyUnits, playerUnits, "enemy");
-
-  updateParticles(dt);
 
   const playerAlive = playerUnits.some(u => u.alive);
   const enemyAlive = enemyUnits.some(u => u.alive);
   if (!enemyAlive) { endBattle(true); return; }
   if (!playerAlive) { endBattle(false); return; }
-  if (clock >= BATTLE_TIME_LIMIT) { endBattle(false); return; }
+  if (battleClock >= BATTLE_TIME_LIMIT) { endBattle(false); return; }
 
   updateBattleHud();
 
@@ -196,7 +438,7 @@ function updateBattle(dt) {
     allies.forEach(u => {
       if (!u.alive) return;
       u.atkTimer -= dt;
-      if (u.flashUntil && u.flashUntil < clock) u.flashUntil = 0;
+      if (u.flashUntil && u.flashUntil < battleClock) u.flashUntil = 0;
       if (u.atkTimer > 0) return;
       u.atkTimer = 1 / u.spd;
       const target = enemies.find(e => e.alive);
@@ -213,18 +455,19 @@ function basicAttack(attacker, target, side) {
   const shieldMult = target.side === "player" ? (playerShieldUntil ? playerShieldMult : 1) : (enemyShieldUntil ? enemyShieldMult : 1);
   const dmg = Math.round(attacker.atk * mult * shieldMult);
   applyDamage(target, dmg, mult > 1);
-  spawnAttackFx(attacker, target, side);
+  triggerLunge(attacker);
+  spawnAttackFx(attacker, target, mult > 1);
 }
 
 function executeUlt(attacker, allies, enemies, side) {
-  attacker.flashUntil = clock + 0.4;
-  triggerShake(0.25, 6);
-  spawnFloatingText(unitX(attacker), unitY(attacker) - 46, `${attacker.name}: ${attacker.ult || "ULT"}!`, "#ffd24d", true);
+  attacker.flashUntil = battleClock + 0.4;
+  triggerShake(6);
+  spawnFloatingText(attacker, `${attacker.name}: ULT!`, "#ffd24d", true, 0.5);
   switch (attacker.role) {
     case "tank": {
-      if (side === "player") { playerShieldUntil = clock + 3; playerShieldMult = 0.55; }
-      else { enemyShieldUntil = clock + 3; enemyShieldMult = 0.55; }
-      allies.forEach(a => a.alive && spawnParticleBurst(unitX(a), unitY(a), "#66e0ff", 8));
+      if (side === "player") { playerShieldUntil = battleClock + 3; playerShieldMult = 0.55; spawnShieldDome("player"); }
+      else { enemyShieldUntil = battleClock + 3; enemyShieldMult = 0.55; spawnShieldDome("enemy"); }
+      allies.forEach(a => a.alive && spawnParticleBurst(unitWorldPos(a), 0x66e0ff, 10));
       break;
     }
     case "fighter": {
@@ -232,7 +475,8 @@ function executeUlt(attacker, allies, enemies, side) {
       if (target) {
         const mult = elementMultiplier(attacker.element, target.element) * 2.2;
         applyDamage(target, Math.round(attacker.atk * mult), true);
-        spawnAttackFx(attacker, target, side, true);
+        triggerLunge(attacker, true);
+        spawnAttackFx(attacker, target, true);
       }
       break;
     }
@@ -244,7 +488,8 @@ function executeUlt(attacker, allies, enemies, side) {
           const mult = elementMultiplier(attacker.element, lowest.element) * 1.15;
           applyDamage(lowest, Math.round(attacker.atk * mult), true);
         }
-        spawnAttackFx(attacker, lowest, side, true);
+        triggerLunge(attacker, true);
+        spawnAttackFx(attacker, lowest, true);
       }
       break;
     }
@@ -253,7 +498,7 @@ function executeUlt(attacker, allies, enemies, side) {
         if (!e.alive) return;
         const mult = elementMultiplier(attacker.element, e.element);
         applyDamage(e, Math.round(attacker.atk * mult * 0.85), true);
-        spawnParticleBurst(unitX(e), unitY(e), "#ff8a3d", 10);
+        spawnParticleBurst(unitWorldPos(e), 0xff8a3d, 12);
       });
       break;
     }
@@ -263,8 +508,8 @@ function executeUlt(attacker, allies, enemies, side) {
       if (lowest) {
         const healAmt = Math.round(attacker.atk * 3.2);
         lowest.hp = Math.min(lowest.maxHp, lowest.hp + healAmt);
-        spawnFloatingText(unitX(lowest), unitY(lowest) - 20, "+" + healAmt, "#4dd68a");
-        spawnParticleBurst(unitX(lowest), unitY(lowest), "#4dd68a", 12);
+        spawnFloatingText(lowest, "+" + healAmt, "#4dd68a", false, 0.2);
+        spawnParticleBurst(unitWorldPos(lowest), 0x4dd68a, 14);
       }
       break;
     }
@@ -273,256 +518,241 @@ function executeUlt(attacker, allies, enemies, side) {
 
 function applyDamage(unit, dmg, big) {
   unit.hp -= dmg;
-  unit.flashUntil = clock + 0.15;
-  spawnFloatingText(unitX(unit), unitY(unit) - 30, Math.round(dmg), big ? "#ffd24d" : "#ffffff", big);
+  unit.flashUntil = battleClock + 0.15;
+  spawnFloatingText(unit, Math.round(dmg), big ? "#ffd24d" : "#ffffff", big, 0);
   if (unit.hp <= 0 && unit.alive) {
     unit.alive = false;
     unit.hp = 0;
-    spawnParticleBurst(unitX(unit), unitY(unit), "#ff4d6a", 16);
+    spawnParticleBurst(unitWorldPos(unit), 0xff4d6a, 18);
+    unit.obj3d.userData.deathAt = battleClock;
   }
 }
 
 function updateBattleHud() {
   document.getElementById("battleStageLabel").textContent = `${currentStageIdx + 1}. Bölge`;
-  document.getElementById("battleTimerLabel").textContent = `${Math.max(0, Math.ceil(BATTLE_TIME_LIMIT - clock))}s`;
+  document.getElementById("battleTimerLabel").textContent = `${Math.max(0, Math.ceil(BATTLE_TIME_LIMIT - battleClock))}s`;
 }
 
-/* ============================== KOORDİNATLAR ============================== */
-function unitX(u) {
-  const w = canvas.width / dpr;
-  return u.side === "player" ? w * 0.22 : w * 0.78;
-}
-function unitY(u) {
-  const h = canvas.height / dpr;
-  const total = (u.side === "player" ? playerUnits.length : enemyUnits.length);
-  const usable = h * 0.82;
-  return h * 0.10 + usable * ((u.slot + 0.5) / total);
+/* ==========================================================================
+   Görsel efektler — vuruş sekmesi, mermi, parçacıklar, uçan metin, aura.
+   ========================================================================== */
+function unitWorldPos(u) {
+  return new THREE.Vector3(u.obj3d.position.x, u.obj3d.position.y + 0.5 * u.scale, u.obj3d.position.z);
 }
 
-/* ============================== PARÇACIKLAR ============================== */
-function spawnParticleBurst(x, y, color, count) {
+function triggerLunge(u, big) {
+  u.lungeT = big ? 1.4 : 1;
+}
+
+function spawnAttackFx(attacker, target, big) {
+  const isMelee = attacker.role === "assassin" || attacker.role === "fighter" || attacker.role === "tank";
+  if (isMelee) {
+    spawnParticleBurst(unitWorldPos(target), big ? 0xffd24d : 0xffffff, big ? 10 : 5);
+    return;
+  }
+  // menzilli (büyücü/şifacı) — hedefe uçan bir mermi
+  const from = unitWorldPos(attacker), to = unitWorldPos(target);
+  const geo = new THREE.SphereGeometry(big ? 0.09 : 0.06, 8, 8);
+  const mat = new THREE.MeshBasicMaterial({ color: big ? 0xffd24d : 0x66e0ff });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.copy(from);
+  battleScene.add(mesh);
+  const t = { obj: mesh, kind: "bolt", life: 0.18, age: 0, from, to, onArrive: () => spawnParticleBurst(to, big ? 0xffd24d : 0x66e0ff, big ? 10 : 6) };
+  transientObjs.push(t);
+}
+
+function spawnParticleBurst(pos, colorHex, count) {
+  const tex = getDotTexture();
   for (let i = 0; i < count; i++) {
+    const mat = new THREE.SpriteMaterial({ map: tex, color: colorHex, transparent: true, depthWrite: false });
+    const spr = new THREE.Sprite(mat);
+    const s = 0.08 + Math.random() * 0.08;
+    spr.scale.set(s, s, 1);
+    spr.position.copy(pos);
+    battleScene.add(spr);
     const angle = Math.random() * Math.PI * 2;
-    const speed = 60 + Math.random() * 120;
-    particles.push({ x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, life: 0.5 + Math.random() * 0.35, age: 0, color, size: 2 + Math.random() * 2.5, kind: "dot" });
+    const speed = 1 + Math.random() * 2;
+    transientObjs.push({
+      obj: spr, kind: "sprite", life: 0.5 + Math.random() * 0.3, age: 0,
+      vx: Math.cos(angle) * speed, vy: 1.5 + Math.random() * 1.5, vz: Math.sin(angle) * speed,
+    });
   }
 }
-function spawnFloatingText(x, y, text, color, big) {
-  particles.push({ x, y, vx: (Math.random() - 0.5) * 16, vy: -55, life: big ? 1.1 : 0.8, age: 0, color, text, kind: "text", big });
+
+function spawnFloatingText(unit, text, color, big, delay) {
+  const tex = makeTextTexture(text, color, big ? 96 : 72);
+  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
+  const spr = new THREE.Sprite(mat);
+  const s = big ? 1.3 : 0.9;
+  spr.scale.set(s, s * 0.5, 1);
+  const pos = unitWorldPos(unit); pos.y += 0.6 * unit.scale;
+  spr.position.copy(pos);
+  spr.renderOrder = 20;
+  spr.visible = !delay;
+  battleScene.add(spr);
+  transientObjs.push({ obj: spr, kind: "text", life: big ? 1.1 : 0.85, age: -(delay || 0), vy: 0.9 });
 }
-function spawnAttackFx(attacker, target, side, big) {
-  const ax = unitX(attacker), ay = unitY(attacker);
-  const tx = unitX(target), ty = unitY(target);
-  particles.push({ x: ax, y: ay, vx: (tx - ax) / 0.14, vy: (ty - ay) / 0.14, life: 0.14, age: 0, color: big ? "#ffd24d" : "#66e0ff", size: big ? 6 : 4, kind: "bolt", onArrive: () => spawnParticleBurst(tx, ty, big ? "#ffd24d" : "#66e0ff", big ? 12 : 6) });
+
+function spawnShieldDome(side) {
+  const isPlayer = side === "player";
+  const z = isPlayer ? 2.5 : -2.5;
+  const geo = new THREE.SphereGeometry(2.3, 16, 12, 0, Math.PI * 2, 0, Math.PI / 1.7);
+  const mat = new THREE.MeshBasicMaterial({ color: 0x66e0ff, transparent: true, opacity: 0.14, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false });
+  const dome = new THREE.Mesh(geo, mat);
+  dome.position.set(0, 0, z);
+  battleScene.add(dome);
+  if (isPlayer) { if (shieldDomeP) battleScene.remove(shieldDomeP); shieldDomeP = dome; }
+  else { if (shieldDomeE) battleScene.remove(shieldDomeE); shieldDomeE = dome; }
 }
-function updateParticles(dt) {
-  for (let i = particles.length - 1; i >= 0; i--) {
-    const p = particles[i];
-    p.age += dt;
-    if (p.age >= p.life) {
-      if (p.kind === "bolt" && p.onArrive) p.onArrive();
-      particles.splice(i, 1);
+
+function removeTransient(t) {
+  battleScene.remove(t.obj);
+  if (t.obj.material) {
+    if (t.obj.material.map) t.obj.material.map.dispose();
+    t.obj.material.dispose();
+  }
+  if (t.obj.geometry) t.obj.geometry.dispose();
+}
+
+function triggerShake(mag) {
+  if (!state.settings.shake) return;
+  camShake = mag;
+}
+
+/* ==========================================================================
+   Kare döngüsü — animasyon, billboard, temizlik, render.
+   ========================================================================== */
+function renderBattleFrame(dt) {
+  if (!battleRenderer) return;
+
+  [...playerUnits, ...enemyUnits].forEach(u => updateUnitVisual(u, dt));
+  updateTransients(dt);
+  updateFireflies(dt);
+  updateGodrays();
+  updateShieldDomes(dt);
+
+  if (camShake > 0.001) {
+    battleCamera.position.x = (Math.random() - 0.5) * camShake * 0.06;
+    battleCamera.position.y = 6.1 + (Math.random() - 0.5) * camShake * 0.06;
+    camShake *= 0.85;
+  } else {
+    battleCamera.position.x = 0; battleCamera.position.y = 6.1;
+  }
+  battleCamera.lookAt(0, 0.5, -1.0);
+
+  battleRenderer.render(battleScene, battleCamera);
+}
+
+function updateUnitVisual(u, dt) {
+  // ölüm animasyonu: batıp küçülür
+  if (!u.alive) {
+    const t = Math.min(1, (battleClock - (u.obj3d.userData.deathAt || battleClock)) / 0.6);
+    u.obj3d.scale.setScalar(Math.max(0.001, u.scale * (1 - t)));
+    u.obj3d.position.y = -t * 0.4;
+    u.hpBar.visible = false; u.nameSprite.visible = false;
+    return;
+  }
+
+  // doğuş sekmesi
+  let spawnScale = 1;
+  const spawnT = Math.min(1, (battleClock - u.obj3d.userData.spawnAt) / 0.5);
+  if (spawnT < 1) spawnScale = elasticOutBattle(spawnT);
+
+  // hafif nefes/bob + saldırı sekmesi (lunge)
+  const bob = Math.sin(battleClock * 2 + u.slot) * 0.04;
+  let lungeOffset = 0;
+  if (u.lungeT > 0) {
+    u.lungeT -= dt * 5;
+    const t = Math.max(0, u.lungeT);
+    lungeOffset = Math.sin(Math.min(1, 1 - (t % 1)) * Math.PI) * (t > 1 ? 0.55 : 0.35);
+  }
+  const dirZ = u.side === "player" ? -1 : 1; // rakip tarafa doğru sekme
+  u.obj3d.position.x = u.baseX;
+  u.obj3d.position.z = u.baseZ + dirZ * lungeOffset;
+  u.obj3d.position.y = bob;
+  u.obj3d.scale.setScalar(u.scale * spawnScale);
+  u.obj3d.rotation.y += dt * 0.6;
+
+  // ult gauge -> emissive parlaklık; hasar flaşı -> beyaz parlama
+  const mesh = u.obj3d.userData.mainMesh;
+  const flashing = u.flashUntil && u.flashUntil > battleClock;
+  const chargeGlow = 0.25 + (u.ultGauge / 100) * 0.9;
+  mesh.material.emissive.copy(flashing ? new THREE.Color(0xffffff) : mesh.userData.baseColor).multiplyScalar(flashing ? 0.9 : chargeGlow * 0.4 + 0.15);
+
+  if (u.obj3d.userData.satellites) {
+    u.obj3d.userData.satellites.forEach((sat, i) => {
+      const ang = battleClock * 1.4 + sat.userData.orbit * Math.PI * 2;
+      sat.position.set(Math.cos(ang) * 0.5, 0.42 + Math.sin(ang * 1.3) * 0.1, Math.sin(ang) * 0.5);
+    });
+  }
+  if (u.obj3d.userData.auraRing) u.obj3d.userData.auraRing.rotation.z += dt * 1.2;
+
+  // hp barı + isim: kameraya bakacak şekilde billboard, konumu ünitenin üstü
+  const worldY = 1.05 * u.scale + u.obj3d.position.y;
+  u.hpBar.position.set(u.obj3d.position.x, worldY, u.obj3d.position.z);
+  u.hpBar.quaternion.copy(battleCamera.quaternion);
+  const ratio = Math.max(0, u.hp / u.maxHp);
+  u.hpBar.userData.fill.scale.x = ratio;
+  u.hpBar.userData.fill.position.x = -(1 - ratio) * (u.hpBar.userData.width / 2);
+  u.hpBar.userData.fill.material.color.setHex(u.side === "player" ? 0x4dd68a : 0xff4d6a);
+
+  u.nameSprite.position.set(u.obj3d.position.x, 1.28 * u.scale + u.obj3d.position.y, u.obj3d.position.z);
+}
+
+function updateTransients(dt) {
+  for (let i = transientObjs.length - 1; i >= 0; i--) {
+    const t = transientObjs[i];
+    t.age += dt;
+    if (t.age < 0) continue; // gecikmeli (delay) efektler henüz başlamadı
+    if (t.kind === "text" && !t.obj.visible) t.obj.visible = true;
+    if (t.age >= t.life) {
+      if (t.kind === "bolt" && t.onArrive) t.onArrive();
+      removeTransient(t);
+      transientObjs.splice(i, 1);
       continue;
     }
-    p.x += p.vx * dt; p.y += p.vy * dt;
-    if (p.kind === "dot") p.vy += 130 * dt;
-  }
-}
-let shakeTime = 0, shakeMag = 0;
-function triggerShake(duration, mag) {
-  if (!state.settings.shake) return;
-  shakeTime = duration; shakeMag = mag;
-}
-
-/* ============================== RENDER ============================== */
-
-function renderBattle() {
-  if (!ctx) return;
-  const w = canvas.width / dpr, h = canvas.height / dpr;
-  ctx.save();
-  ctx.scale(dpr, dpr);
-  ctx.clearRect(0, 0, w, h);
-
-  let ox = 0, oy = 0;
-  if (shakeTime > 0) { shakeTime -= 1 / 60; ox = (Math.random() - 0.5) * shakeMag; oy = (Math.random() - 0.5) * shakeMag; ctx.translate(ox, oy); }
-
-  drawForestBattleBackground(w, h);
-
-  ctx.strokeStyle = "rgba(255,255,255,0.06)";
-  ctx.beginPath(); ctx.moveTo(w / 2, 0); ctx.lineTo(w / 2, h); ctx.stroke();
-
-  ctx.font = "bold 13px sans-serif"; ctx.textAlign = "center"; ctx.fillStyle = "rgba(255,255,255,0.35)";
-  ctx.fillText("VS", w / 2, h / 2);
-
-  if (playerShieldUntil) drawShieldAura(w * 0.22, h);
-  if (enemyShieldUntil) drawShieldAura(w * 0.78, h);
-
-  playerUnits.forEach(u => drawUnit(u));
-  enemyUnits.forEach(u => drawUnit(u));
-  particles.forEach(p => drawParticle(p));
-
-  ctx.restore();
-}
-
-// Sahne teması: "Büyülü Orman" — savaş, alacakaranlık bir orman
-// açıklığında geçiyor. Karanlık ağaç gövdeleri sahneyi çerçeveliyor,
-// tepeden süzülen ışık hüzmeleri ve toprakta parıldayan kristal
-// mantarlar/çiçekler (oyunun "kristal varlık" kimliğiyle bağı koruyor).
-let forestSeed = null;
-function drawForestBattleBackground(w, h) {
-  const bg = ctx.createLinearGradient(0, 0, 0, h);
-  bg.addColorStop(0, "#0e2418"); bg.addColorStop(0.45, "#122c1d"); bg.addColorStop(1, "#0a1a12");
-  ctx.fillStyle = bg; ctx.fillRect(-10, -10, w + 20, h + 20);
-
-  if (!forestSeed) {
-    forestSeed = { trunks: [], canopy: [], glows: [], fireflies: [] };
-    for (let i = 0; i < 6; i++) {
-      forestSeed.trunks.push({
-        x: (i / 5) * 1.15 - 0.075 + (Math.random() - 0.5) * 0.05,
-        w: 0.05 + Math.random() * 0.05, lean: (Math.random() - 0.5) * 0.06,
-        near: i % 2 === 0,
-      });
-    }
-    for (let i = 0; i < 9; i++) {
-      forestSeed.canopy.push({ x: Math.random(), w: 0.16 + Math.random() * 0.18, h: 0.10 + Math.random() * 0.14 });
-    }
-    for (let i = 0; i < 6; i++) {
-      forestSeed.glows.push({
-        x: 0.08 + Math.random() * 0.84, y: 0.78 + Math.random() * 0.16, s: 0.012 + Math.random() * 0.018,
-        pal: [ELEMENT_PALETTE.fire, ELEMENT_PALETTE.water, ELEMENT_PALETTE.nature][i % 3], phase: Math.random() * 10,
-      });
-    }
-    for (let i = 0; i < 14; i++) {
-      forestSeed.fireflies.push({ x: Math.random(), y: 0.3 + Math.random() * 0.6, phase: Math.random() * 10, speed: 0.3 + Math.random() * 0.4 });
+    if (t.kind === "sprite") {
+      t.obj.position.x += t.vx * dt; t.obj.position.y += t.vy * dt; t.obj.position.z += t.vz * dt;
+      t.vy -= 3 * dt;
+      t.obj.material.opacity = 1 - t.age / t.life;
+    } else if (t.kind === "bolt") {
+      const p = t.age / t.life;
+      t.obj.position.lerpVectors(t.from, t.to, p);
+    } else if (t.kind === "text") {
+      t.obj.position.y += t.vy * dt;
+      t.obj.material.opacity = 1 - t.age / t.life;
+      t.obj.quaternion.copy(battleCamera.quaternion);
     }
   }
-
-  // tepeden süzülen ışık hüzmeleri (canopy aralıklarından)
-  ctx.save();
-  [0.28, 0.62].forEach((fx, i) => {
-    const bx = fx * w;
-    const grad = ctx.createLinearGradient(bx - w * 0.12, 0, bx + w * 0.12, h * 0.9);
-    grad.addColorStop(0, "rgba(214,255,176,0)");
-    grad.addColorStop(0.5, `rgba(214,255,176,${0.07 + Math.sin(clock * 0.6 + i) * 0.02})`);
-    grad.addColorStop(1, "rgba(214,255,176,0)");
-    ctx.fillStyle = grad;
-    ctx.beginPath();
-    ctx.moveTo(bx - w * 0.05, 0); ctx.lineTo(bx + w * 0.05, 0);
-    ctx.lineTo(bx + w * 0.16, h * 0.95); ctx.lineTo(bx - w * 0.16, h * 0.95);
-    ctx.closePath(); ctx.fill();
-  });
-  ctx.restore();
-
-  // üstten sarkan yaprak/tepe silüetleri
-  ctx.fillStyle = "rgba(6,18,10,0.85)";
-  forestSeed.canopy.forEach(c => {
-    const cx = c.x * w, cw = c.w * w, chh = c.h * h;
-    ctx.beginPath();
-    ctx.ellipse(cx, -chh * 0.3, cw * 0.5, chh, 0, 0, Math.PI * 2);
-    ctx.fill();
-  });
-
-  // ağaç gövdeleri (yakın olanlar daha koyu/kalın, sahneyi çerçeveler)
-  forestSeed.trunks.forEach(t => {
-    const bx = t.x * w, bw = t.w * w * (t.near ? 1.6 : 1);
-    ctx.save();
-    ctx.fillStyle = t.near ? "rgba(6,14,9,0.95)" : "rgba(14,28,18,0.7)";
-    ctx.beginPath();
-    ctx.moveTo(bx - bw / 2, h);
-    ctx.lineTo(bx - bw / 2 + t.lean * w, 0);
-    ctx.lineTo(bx + bw / 2 + t.lean * w, 0);
-    ctx.lineTo(bx + bw / 2, h);
-    ctx.closePath();
-    ctx.fill();
-    ctx.restore();
-  });
-
-  // toprakta parıldayan kristal mantar/çiçekler — temanın devamlılığı
-  forestSeed.glows.forEach(g => {
-    const gx = g.x * w, gy = g.y * h, r = g.s * Math.min(w, h);
-    const glow = 0.55 + Math.sin(clock * 1.5 + g.phase) * 0.25;
-    ctx.save();
-    ctx.globalAlpha = glow;
-    drawFacetShape(ctx, ROLE_SHAPES.assassin, gx, gy, r, g.pal);
-    ctx.restore();
-  });
-
-  // ateşböcekleri / süzülen polen
-  forestSeed.fireflies.forEach(f => {
-    const fx = (f.x + Math.sin(clock * 0.2 + f.phase) * 0.02) * w;
-    const fy = (f.y - ((clock * f.speed * 0.02 + f.phase) % 1) * 0.15) * h;
-    const tw = 0.4 + Math.sin(clock * 3 + f.phase) * 0.4;
-    ctx.save();
-    ctx.globalAlpha = Math.max(0, tw);
-    ctx.fillStyle = "#d8ff8a";
-    ctx.beginPath(); ctx.arc(fx, fy, 1.6, 0, Math.PI * 2); ctx.fill();
-    ctx.restore();
-  });
-
-  // zemin (yosunlu toprak) ve ufuk çizgisi
-  const groundGrad = ctx.createLinearGradient(0, h * 0.86, 0, h);
-  groundGrad.addColorStop(0, "rgba(20,38,22,0)");
-  groundGrad.addColorStop(1, "rgba(8,18,10,0.65)");
-  ctx.fillStyle = groundGrad;
-  ctx.fillRect(0, h * 0.86, w, h * 0.14);
 }
 
-function drawShieldAura(cx, h) {
-  ctx.save();
-  ctx.globalAlpha = 0.08 + Math.sin(clock * 4) * 0.03;
-  ctx.fillStyle = "#66e0ff";
-  ctx.fillRect(cx - 55, 0, 110, h);
-  ctx.restore();
-}
-
-function drawUnit(u) {
-  const x = unitX(u), y = unitY(u);
-  const r = u.isBoss ? 34 : 26;
-
-  const flashAlpha = (u.flashUntil && u.flashUntil > clock) ? 0.55 : 0;
-  drawCrystalBeing(ctx, x, y, r, {
-    role: u.role, element: u.element, rarity: u.rarity, alive: u.alive,
-    flashAlpha, spinT: (clock * 0.15 + u.slot * 0.3) % 1,
+function updateFireflies(dt) {
+  fireflies.forEach(f => {
+    f.position.y += Math.sin(battleClock * f.userData.speed + f.userData.phase) * dt * 0.15;
+    f.position.x += Math.cos(battleClock * 0.3 + f.userData.phase) * dt * 0.05;
+    f.material.opacity = 0.4 + Math.sin(battleClock * 3 + f.userData.phase) * 0.4;
   });
-
-  // taraf halkası (oyuncu/düşman ayrımı)
-  ctx.save();
-  ctx.beginPath(); ctx.arc(x, y, r + 7, 0, Math.PI * 2);
-  ctx.strokeStyle = u.side === "player" ? "rgba(102,224,255,0.5)" : "rgba(255,77,106,0.5)";
-  ctx.lineWidth = 1.5; ctx.stroke();
-  ctx.restore();
-
-  // ult gauge halkası
-  if (u.alive && u.ultGauge > 0) {
-    ctx.beginPath();
-    ctx.arc(x, y, r + 11, -Math.PI / 2, -Math.PI / 2 + (u.ultGauge / 100) * Math.PI * 2);
-    ctx.strokeStyle = "#ffd24d"; ctx.lineWidth = 3; ctx.stroke();
-  }
-
-  ctx.font = "10px sans-serif"; ctx.fillStyle = "rgba(255,255,255,0.8)"; ctx.textAlign = "center";
-  ctx.fillText(u.name, x, y + r + 13);
-
-  const barW = 50, barH = 5;
-  const bx = x - barW / 2, by = y - r - 12;
-  ctx.fillStyle = "rgba(0,0,0,0.5)"; ctx.fillRect(bx, by, barW, barH);
-  ctx.fillStyle = u.side === "player" ? "#4dd68a" : "#ff4d6a";
-  ctx.fillRect(bx, by, barW * Math.max(0, u.hp / u.maxHp), barH);
 }
 
-function drawParticle(p) {
-  const t = p.age / p.life;
-  const alpha = 1 - t;
-  if (p.kind === "text") {
-    ctx.globalAlpha = alpha; ctx.fillStyle = p.color;
-    ctx.font = (p.big ? "bold 15px" : "bold 12px") + " sans-serif"; ctx.textAlign = "center";
-    ctx.fillText(p.text, p.x, p.y); ctx.globalAlpha = 1;
-    return;
+function updateGodrays() {
+  if (!battleScene.userData.godrays) return;
+  battleScene.userData.godrays.forEach((g, i) => {
+    g.material.opacity = g.userData.baseOpacity + Math.sin(battleClock * 0.5 + g.userData.phase) * 0.015;
+  });
+}
+
+function updateShieldDomes(dt) {
+  if (shieldDomeP) {
+    shieldDomeP.visible = playerShieldUntil > battleClock;
+    shieldDomeP.rotation.y += dt * 0.3;
   }
-  if (p.kind === "bolt") {
-    ctx.globalAlpha = alpha; ctx.fillStyle = p.color;
-    ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2); ctx.fill(); ctx.globalAlpha = 1;
-    return;
+  if (shieldDomeE) {
+    shieldDomeE.visible = enemyShieldUntil > battleClock;
+    shieldDomeE.rotation.y += dt * 0.3;
   }
-  ctx.globalAlpha = alpha; ctx.fillStyle = p.color;
-  ctx.beginPath(); ctx.arc(p.x, p.y, p.size * (1 - t * 0.4), 0, Math.PI * 2); ctx.fill(); ctx.globalAlpha = 1;
+}
+
+function elasticOutBattle(t) {
+  const c4 = (2 * Math.PI) / 3;
+  return t === 0 ? 0 : t === 1 ? 1 : Math.pow(2, -10 * t) * Math.sin((t * 10 - 0.75) * c4) + 1;
 }
