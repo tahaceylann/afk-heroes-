@@ -189,54 +189,138 @@ function resizeBattleRenderer() {
    Karakter geometrisi — role göre siluet, elemente göre renk (theme.js'teki
    2D "Kristal Varlıklar" diliyle aynı mantık, şimdi gerçek 3D geometri).
    ========================================================================== */
+// Paylaşılan geometriler — her ünitede yeniden oluşturmak yerine bir kez
+// kurulup tüm karakterler arasında paylaşılıyor (bellek/performans).
+const HUMANOID_GEO = {
+  leg: new THREE.CylinderGeometry(0.062, 0.08, 0.46, 6),
+  armThin: new THREE.CylinderGeometry(0.04, 0.05, 0.38, 6),
+  armThick: new THREE.CylinderGeometry(0.05, 0.065, 0.4, 6),
+  hand: new THREE.SphereGeometry(0.055, 8, 8),
+  head: new THREE.SphereGeometry(0.145, 12, 10),
+  torsoTank: new THREE.BoxGeometry(0.48, 0.4, 0.3),
+  torsoFighter: new THREE.BoxGeometry(0.36, 0.38, 0.24),
+  torsoAssassin: new THREE.BoxGeometry(0.28, 0.36, 0.2),
+  robe: new THREE.ConeGeometry(0.3, 0.42, 8),
+  shield: new THREE.BoxGeometry(0.055, 0.36, 0.28),
+  sword: new THREE.BoxGeometry(0.045, 0.4, 0.045),
+  swordSmall: new THREE.BoxGeometry(0.03, 0.24, 0.03),
+  staff: new THREE.CylinderGeometry(0.02, 0.026, 0.7, 6),
+  orb: new THREE.SphereGeometry(0.065, 10, 10),
+  wing: new THREE.PlaneGeometry(0.3, 0.34),
+};
+const SKIN_MAT = new THREE.MeshStandardMaterial({ color: 0xe9c8a0, roughness: 0.7 });
+const METAL_MAT = new THREE.MeshStandardMaterial({ color: 0xb9c0cc, roughness: 0.35, metalness: 0.6 });
+
+/**
+ * Basit primitiflerden kurulmuş, ayakta duran bir savaşçı figürü — düz bir
+ * kristal/geometrik cisim yerine gerçek bir kafa/gövde/kol/bacak ve role
+ * özgü bir silah/aksesuar. Element rengi kıyafete, nadirlik ayaklardaki
+ * dönen halkaya yansıyor. three.js r140'ta CapsuleGeometry olmadığından
+ * uzuvlar için CylinderGeometry kullanılıyor.
+ */
 function buildUnitMesh(role, element, rarity) {
   const pal = ELEMENT_PALETTE[element] || ELEMENT_PALETTE.fire;
-  const color = new THREE.Color(pal.base);
-  const edge = new THREE.Color(pal.edge);
-  const mat = new THREE.MeshStandardMaterial({
-    color, emissive: color.clone().multiplyScalar(0.25), metalness: 0.35, roughness: 0.28,
+  const outfitColor = new THREE.Color(pal.base);
+  const outfitMat = new THREE.MeshStandardMaterial({
+    color: outfitColor, emissive: outfitColor.clone().multiplyScalar(0.2), metalness: 0.25, roughness: 0.55,
   });
-  let geo;
-  switch (role) {
-    case "tank": geo = new THREE.BoxGeometry(0.62, 0.7, 0.5); break;
-    case "fighter": geo = new THREE.OctahedronGeometry(0.42, 0); geo.scale(0.85, 1.25, 0.85); break;
-    case "assassin": geo = new THREE.OctahedronGeometry(0.32, 0); geo.scale(0.55, 1.5, 0.55); break;
-    case "mage": geo = new THREE.IcosahedronGeometry(0.4, 0); break;
-    case "healer": geo = new THREE.TorusGeometry(0.32, 0.13, 8, 6); break;
-    default: geo = new THREE.OctahedronGeometry(0.38, 0);
-  }
-  const mesh = new THREE.Mesh(geo, mat);
-  mesh.castShadow = true; mesh.receiveShadow = true;
-  mesh.userData.edgeColor = edge;
-  mesh.userData.baseColor = color;
 
   const group = new THREE.Group();
-  group.add(mesh);
-  mesh.position.y = role === "tank" ? 0.35 : 0.42;
+  const isRobed = role === "mage" || role === "healer";
+
+  const legL = new THREE.Mesh(HUMANOID_GEO.leg, outfitMat); legL.position.set(-0.1, 0.23, 0);
+  const legR = new THREE.Mesh(HUMANOID_GEO.leg, outfitMat); legR.position.set(0.1, 0.23, 0);
+  group.add(legL, legR);
+
+  let torso, torsoTopY;
+  if (isRobed) {
+    torso = new THREE.Mesh(HUMANOID_GEO.robe, outfitMat);
+    torso.position.y = 0.46 + 0.21;
+    torsoTopY = 0.46 + 0.42;
+  } else {
+    const torsoGeo = role === "tank" ? HUMANOID_GEO.torsoTank : role === "assassin" ? HUMANOID_GEO.torsoAssassin : HUMANOID_GEO.torsoFighter;
+    torso = new THREE.Mesh(torsoGeo, outfitMat);
+    torso.position.y = 0.46 + torsoGeo.parameters.height / 2;
+    torsoTopY = 0.46 + torsoGeo.parameters.height;
+  }
+  group.add(torso);
+
+  const shoulderY = 0.46 + (torsoTopY - 0.46) * 0.82;
+  const armGeo = role === "tank" ? HUMANOID_GEO.armThick : HUMANOID_GEO.armThin;
+  const armL = new THREE.Mesh(armGeo, outfitMat); armL.position.set(-0.23, shoulderY - 0.19, 0); armL.rotation.z = 0.12;
+  const armR = new THREE.Mesh(armGeo, outfitMat); armR.position.set(0.23, shoulderY - 0.19, 0); armR.rotation.z = -0.12;
+  group.add(armL, armR);
+  const handL = new THREE.Mesh(HUMANOID_GEO.hand, SKIN_MAT); handL.position.set(-0.25, shoulderY - 0.38, 0);
+  const handR = new THREE.Mesh(HUMANOID_GEO.hand, SKIN_MAT); handR.position.set(0.25, shoulderY - 0.38, 0);
+  group.add(handL, handR);
+
+  const head = new THREE.Mesh(HUMANOID_GEO.head, SKIN_MAT);
+  head.position.y = torsoTopY + 0.16;
+  group.add(head);
+
+  // role'e özgü silah/aksesuar
+  if (role === "tank") {
+    const shield = new THREE.Mesh(HUMANOID_GEO.shield, METAL_MAT);
+    shield.position.set(-0.3, shoulderY - 0.25, 0.08);
+    const sword = new THREE.Mesh(HUMANOID_GEO.sword, METAL_MAT);
+    sword.position.set(0.28, shoulderY - 0.3, 0.05); sword.rotation.z = -0.25;
+    group.add(shield, sword);
+  } else if (role === "fighter") {
+    const sword = new THREE.Mesh(HUMANOID_GEO.sword, METAL_MAT);
+    sword.position.set(0.3, shoulderY - 0.25, 0.1); sword.rotation.z = -0.5; sword.rotation.x = -0.2;
+    group.add(sword);
+    group.userData.weapon = sword;
+  } else if (role === "assassin") {
+    const d1 = new THREE.Mesh(HUMANOID_GEO.swordSmall, METAL_MAT);
+    d1.position.set(0.27, shoulderY - 0.32, 0.08); d1.rotation.z = -0.4;
+    const d2 = new THREE.Mesh(HUMANOID_GEO.swordSmall, METAL_MAT);
+    d2.position.set(-0.27, shoulderY - 0.32, 0.08); d2.rotation.z = 0.4;
+    group.add(d1, d2);
+    group.userData.weapon = d1;
+  } else if (isRobed) {
+    const staff = new THREE.Mesh(HUMANOID_GEO.staff, METAL_MAT);
+    staff.position.set(0.3, shoulderY - 0.02, 0.05); staff.rotation.z = -0.1;
+    const orbMat = new THREE.MeshStandardMaterial({ color: outfitColor, emissive: outfitColor, emissiveIntensity: 1.1, roughness: 0.2 });
+    const orb = new THREE.Mesh(HUMANOID_GEO.orb, orbMat);
+    orb.position.set(0.34, shoulderY + 0.34, 0.05);
+    group.add(staff, orb);
+    group.userData.orb = orb;
+    if (role === "healer") {
+      const wingMat = new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: 0.35, side: THREE.DoubleSide, emissive: outfitColor, emissiveIntensity: 0.3 });
+      const wingL = new THREE.Mesh(HUMANOID_GEO.wing, wingMat); wingL.position.set(-0.18, torsoTopY - 0.12, -0.14); wingL.rotation.y = 0.5; wingL.rotation.z = 0.3;
+      const wingR = new THREE.Mesh(HUMANOID_GEO.wing, wingMat); wingR.position.set(0.18, torsoTopY - 0.12, -0.14); wingR.rotation.y = -0.5; wingR.rotation.z = -0.3;
+      group.add(wingL, wingR);
+    }
+  }
 
   if (role === "mage") {
-    const satMat = new THREE.MeshStandardMaterial({ color, emissive: color.clone().multiplyScalar(0.4), metalness: 0.3, roughness: 0.3 });
+    const satMat = new THREE.MeshStandardMaterial({ color: outfitColor, emissive: outfitColor.clone().multiplyScalar(0.5), metalness: 0.3, roughness: 0.3 });
+    group.userData.satellites = [];
     for (let i = 0; i < 3; i++) {
-      const sat = new THREE.Mesh(new THREE.OctahedronGeometry(0.11, 0), satMat);
+      const sat = new THREE.Mesh(new THREE.OctahedronGeometry(0.09, 0), satMat);
       sat.castShadow = true;
       sat.userData.orbit = i / 3;
       group.add(sat);
-      group.userData.satellites = group.userData.satellites || [];
       group.userData.satellites.push(sat);
     }
   }
 
-  // nadirlik aurası (epik/efsanevi): dönen ışıksız halka
+  // nadirlik aurası (epik/efsanevi): ayaklardaki dönen büyü çemberi
   if (rarity === "epic" || rarity === "legendary") {
     const auraColor = rarity === "legendary" ? 0xffd24d : 0xc77bff;
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.62, 0.02, 6, 24), new THREE.MeshBasicMaterial({ color: auraColor, transparent: true, opacity: 0.55 }));
-    ring.rotation.x = Math.PI / 2.4;
-    ring.position.y = 0.42;
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.4, 0.018, 6, 28), new THREE.MeshBasicMaterial({ color: auraColor, transparent: true, opacity: 0.6 }));
+    ring.rotation.x = Math.PI / 2;
+    ring.position.y = 0.03;
     group.add(ring);
     group.userData.auraRing = ring;
   }
 
-  group.userData.mainMesh = mesh;
+  [legL, legR, torso, armL, armR, handL, handR, head].forEach(m => { m.castShadow = true; m.receiveShadow = true; });
+
+  torso.userData.baseColor = outfitColor;
+  group.userData.mainMesh = torso;
+  group.userData.baseColor = outfitColor;
+  group.userData.headTopY = head.position.y + 0.14;
   return group;
 }
 
@@ -317,26 +401,31 @@ function makeUnit(side, slot, total, src) {
   const baseZ = isPlayer ? 2.5 : -2.5;
   const scale = isBoss ? 1.4 : 1;
 
+  // Karakterin "önü" -Z eksenine bakacak şekilde modellendi (silahlar +X
+  // elinde) — oyuncu tarafı rakibe (-Z) dönük, düşman tarafı oyuncuya (+Z)
+  // dönük olacak şekilde 180° çevriliyor, iki taraf birbirine bakıyor.
+  const baseRotY = isPlayer ? 0 : Math.PI;
   const obj3d = buildUnitMesh(role, element, rarity);
   obj3d.position.set(baseX, 0, baseZ);
+  obj3d.rotation.y = baseRotY;
   obj3d.scale.setScalar(scale);
   obj3d.userData.spawnAt = battleClock;
   battleScene.add(obj3d);
 
   const hpBar = makeBillboardBar(Math.min(0.85, slotGap * 0.9));
-  hpBar.position.set(baseX, 1.05 * scale, baseZ);
+  hpBar.position.set(baseX, 1.32 * scale, baseZ);
   battleScene.add(hpBar);
 
   const nameSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: makeTextTexture(name, "#ffffff", 40), transparent: true, depthTest: false }));
   nameSprite.scale.set(0.72, 0.18, 1);
-  nameSprite.position.set(baseX, 1.28 * scale, baseZ);
+  nameSprite.position.set(baseX, 1.5 * scale, baseZ);
   nameSprite.renderOrder = 10;
   battleScene.add(nameSprite);
 
   return {
     uid: unitUidCounter++, side, slot, heroId: src.heroId, isBoss,
     name, role, element, rarity,
-    hp, maxHp: hp, atk, spd, scale,
+    hp, maxHp: hp, atk, spd, scale, baseRotY,
     baseX, baseZ, y: 0,
     atkTimer: 0.35 + slot * 0.15, ultGauge: 0, flashUntil: 0, alive: true,
     obj3d, hpBar, nameSprite, lungeT: 0, lungeTarget: null,
@@ -537,7 +626,7 @@ function updateBattleHud() {
    Görsel efektler — vuruş sekmesi, mermi, parçacıklar, uçan metin, aura.
    ========================================================================== */
 function unitWorldPos(u) {
-  return new THREE.Vector3(u.obj3d.position.x, u.obj3d.position.y + 0.5 * u.scale, u.obj3d.position.z);
+  return new THREE.Vector3(u.obj3d.position.x, u.obj3d.position.y + 0.78 * u.scale, u.obj3d.position.z);
 }
 
 function triggerLunge(u, big) {
@@ -671,7 +760,9 @@ function updateUnitVisual(u, dt) {
   u.obj3d.position.z = u.baseZ + dirZ * lungeOffset;
   u.obj3d.position.y = bob;
   u.obj3d.scale.setScalar(u.scale * spawnScale);
-  u.obj3d.rotation.y += dt * 0.6;
+  // sürekli dönüş yerine hafif ağırlık aktarma sallanışı — insansı bir
+  // figürün durmadan fırıl fırıl dönmesi garip dururdu
+  u.obj3d.rotation.y = u.baseRotY + Math.sin(battleClock * 1.1 + u.slot) * 0.07;
 
   // ult gauge -> emissive parlaklık; hasar flaşı -> beyaz parlama
   const mesh = u.obj3d.userData.mainMesh;
@@ -682,10 +773,14 @@ function updateUnitVisual(u, dt) {
   if (u.obj3d.userData.satellites) {
     u.obj3d.userData.satellites.forEach((sat, i) => {
       const ang = battleClock * 1.4 + sat.userData.orbit * Math.PI * 2;
-      sat.position.set(Math.cos(ang) * 0.5, 0.42 + Math.sin(ang * 1.3) * 0.1, Math.sin(ang) * 0.5);
+      sat.position.set(Math.cos(ang) * 0.45, 0.8 + Math.sin(ang * 1.3) * 0.1, Math.sin(ang) * 0.45);
     });
   }
   if (u.obj3d.userData.auraRing) u.obj3d.userData.auraRing.rotation.z += dt * 1.2;
+  if (u.obj3d.userData.weapon) {
+    const swing = Math.max(0, u.lungeT) * 0.9;
+    u.obj3d.userData.weapon.rotation.x = -0.2 - swing;
+  }
 
   // hp barı + isim: kameraya bakacak şekilde billboard, konumu ünitenin üstü
   const worldY = 1.05 * u.scale + u.obj3d.position.y;
